@@ -8,6 +8,9 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 # Add parent dir to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from app.core.config import settings
 from app.models.base import Base
 from app.models.merchant import Merchant
