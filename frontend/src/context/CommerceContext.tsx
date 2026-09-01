@@ -10,13 +10,27 @@ import {
   GrowthOpportunity,
   OrderItem
 } from '../lib/types';
-import { INITIAL_PRODUCTS } from '../lib/mock-data/products';
-import { DEFAULT_POLICY } from '../lib/mock-data/policies';
-import { INITIAL_TRANSACTIONS } from '../lib/mock-data/transactions';
-import { INITIAL_AUDIT_EVENTS } from '../lib/mock-data/audit';
-import { INITIAL_AGENT_EVENTS } from '../lib/mock-data/agent-events';
-import { INITIAL_GROWTH_OPPORTUNITIES } from '../lib/mock-data/growth';
-import { apiService } from '../lib/services/api';
+import { INITIAL_PRODUCTS } from '../mock-data/products';
+import { DEFAULT_POLICY } from '../mock-data/policies';
+import { INITIAL_TRANSACTIONS } from '../mock-data/transactions';
+import { INITIAL_AUDIT_EVENTS } from '../mock-data/audit';
+import { INITIAL_AGENT_EVENTS } from '../mock-data/agent-events';
+import { INITIAL_GROWTH_OPPORTUNITIES } from '../mock-data/growth';
+import { apiService, PaymentOrderResponse, PaymentVerifyResponse } from '../lib/services/api';
+
+interface RazorpayCheckoutResponse {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayErrorResponse {
+  code?: string;
+  description?: string;
+  source?: string;
+  step?: string;
+  reason?: string;
+}
 
 interface CommerceContextType {
   products: Product[];
@@ -39,13 +53,13 @@ interface CommerceContextType {
     selectedProduct: Product;
     acceptedUpsell: boolean;
     upsellProduct?: Product;
-  }) => Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: any; error?: string }>;
+  }) => Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: PaymentOrderResponse | null; error?: string }>;
   payWithRazorpay: (params: {
     orderId: number;
     amountInr: number;
     description: string;
-    onSuccess?: (verifyData: any) => void;
-    onFailure?: (error: any) => void;
+    onSuccess?: (verifyData: PaymentVerifyResponse) => void;
+    onFailure?: (error: Error | RazorpayErrorResponse) => void;
   }) => Promise<void>;
 }
 
@@ -117,16 +131,16 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     orderId: number;
     amountInr: number;
     description: string;
-    onSuccess?: (verifyData: any) => void;
-    onFailure?: (error: any) => void;
+    onSuccess?: (verifyData: PaymentVerifyResponse) => void;
+    onFailure?: (error: Error | RazorpayErrorResponse) => void;
   }) => {
     try {
       // 1. Create Razorpay Test Order on Backend (Server-side calculation)
       const payOrder = await apiService.createPaymentOrder(params.orderId);
 
       // Check if Razorpay standard checkout script is loaded
-      if (typeof window !== 'undefined' && (window as any).Razorpay) {
-        const RazorpayClass = (window as any).Razorpay;
+      if (typeof window !== 'undefined' && 'Razorpay' in window) {
+        const RazorpayClass = (window as unknown as { Razorpay: new (opts: object) => { open: () => void; on: (event: string, handler: (resp: { error?: RazorpayErrorResponse }) => void) => void } }).Razorpay;
         const options = {
           key: payOrder.key_id,
           amount: payOrder.amount, // in paise
@@ -134,7 +148,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
           name: 'Demo Merchant AI Store',
           description: params.description || `Order #${params.orderId} (Test Mode)`,
           order_id: payOrder.razorpay_order_id,
-          handler: async (response: any) => {
+          handler: async (response: RazorpayCheckoutResponse) => {
             try {
               // 2. Cryptographically verify signature server-side
               const verifyRes = await apiService.verifyPayment(
@@ -147,7 +161,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
               if (params.onSuccess) params.onSuccess(verifyRes);
             } catch (err) {
               console.error('Signature verification failed:', err);
-              if (params.onFailure) params.onFailure(err);
+              if (params.onFailure) params.onFailure(err instanceof Error ? err : new Error('Verification failed'));
             }
           },
           modal: {
@@ -167,19 +181,20 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
         };
 
         const rzp = new RazorpayClass(options);
-        rzp.on('payment.failed', async (response: any) => {
+        rzp.on('payment.failed', async (response: { error?: RazorpayErrorResponse }) => {
           await apiService.failPayment(params.orderId, response.error?.description || 'Payment failed');
           await refreshCommerceData();
-          if (params.onFailure) params.onFailure(response.error);
+          if (params.onFailure) params.onFailure(response.error || new Error('Payment failed'));
         });
         rzp.open();
       } else {
         console.warn('Razorpay SDK script not loaded yet, creating simulated test order.');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Payment initiation error:', err);
-      if (params.onFailure) params.onFailure(err);
-      throw err;
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      if (params.onFailure) params.onFailure(errorObj);
+      throw errorObj;
     }
   };
 
@@ -188,7 +203,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     selectedProduct: Product;
     acceptedUpsell: boolean;
     upsellProduct?: Product;
-  }): Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: any; error?: string }> => {
+  }): Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: PaymentOrderResponse | null; error?: string }> => {
     setIsLoading(true);
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
 
@@ -228,7 +243,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
       const orderIdNum = orderRes.order_id;
       const orderIdStr = `ORD-${orderIdNum}`;
 
-      let razorpayOrderData: any = null;
+      let razorpayOrderData: PaymentOrderResponse | null = null;
 
       // 2. If policy is ALLOWED, create Razorpay Test Order
       if (isAllowed) {
@@ -264,10 +279,9 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
         transaction: newTx,
         razorpayOrder: razorpayOrderData
       };
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Backend flow error, using policy engine evaluation fallback:', e);
 
-      // Deterministic policy evaluation fallback
       const isAllowed = totalAmount <= policy.maxTransactionLimit && policy.status === 'Active';
       const policyReason = isAllowed
         ? `Approved: Total ₹${totalAmount.toLocaleString()} is within maximum limit ₹${policy.maxTransactionLimit.toLocaleString()}`
@@ -293,7 +307,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
       return {
         allowed: isAllowed,
         transaction: fallbackTx,
-        error: e.message
+        error: e instanceof Error ? e.message : String(e)
       };
     }
   };
