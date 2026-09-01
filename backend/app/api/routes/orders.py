@@ -36,12 +36,12 @@ async def create_order(
     items_resp = [
         OrderItemResponse(
             product_id=oi.product_id,
-            product_name=oi.product.product_name if oi.product else f"Product #{oi.product_id}",
+            product_name=c_item["product"].product_name,
             quantity=oi.quantity,
             unit_price_inr=float(oi.unit_price_inr),
             total_price_inr=float(oi.total_price_inr)
         )
-        for oi in order_items
+        for oi, c_item in zip(order_items, res["calculated_items"])
     ]
 
     txn_resp = TransactionResponse.model_validate(txn) if txn else None

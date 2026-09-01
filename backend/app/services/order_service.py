@@ -181,5 +181,6 @@ class OrderService:
             "items": order_items_objs,
             "transaction": txn,
             "policy_allowed": policy_allowed,
-            "policy_reason": policy_reason
+            "policy_reason": policy_reason,
+            "calculated_items": calculated_items
         }
