@@ -13,6 +13,38 @@ from app.tools.policy_tool import execute_policy_check
 logger = logging.getLogger("agent.graph.nodes")
 
 
+def get_llm_instance():
+    """
+    Instantiate LLM (Gemini or OpenAI) based on environment configuration.
+    Never uses hardcoded keys.
+    """
+    api_key = settings.effective_api_key
+    if not api_key:
+        return None
+
+    provider = settings.LLM_PROVIDER.lower()
+    try:
+        if provider in ["gemini", "google"]:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            model_name = settings.LLM_MODEL if "gemini" in settings.LLM_MODEL else "gemini-1.5-flash"
+            return ChatGoogleGenerativeAI(
+                model=model_name,
+                google_api_key=api_key,
+                temperature=settings.LLM_TEMPERATURE
+            )
+        elif provider == "openai":
+            from langchain_openai import ChatOpenAI
+            model_name = settings.LLM_MODEL if "gpt" in settings.LLM_MODEL else "gpt-4o-mini"
+            return ChatOpenAI(
+                model=model_name,
+                api_key=api_key,
+                temperature=settings.LLM_TEMPERATURE
+            )
+    except Exception as e:
+        logger.warning(f"Could not initialize LLM ({provider}): {e}")
+    return None
+
+
 def parse_intent_fallback(text: str) -> Dict[str, Any]:
     """
     Robust rule-based parser for budget and product keywords
@@ -63,6 +95,7 @@ def parse_intent_fallback(text: str) -> Dict[str, Any]:
 async def understand_request_node(state: AgentState) -> Dict[str, Any]:
     """
     Parse buyer's intent, keywords, and budget constraints from request.
+    Uses configured Gemini/OpenAI LLM, or fallback parser if API key is not supplied.
     """
     buyer_request = state.get("buyer_request", "")
     logger.info(f"[Node: UnderstandRequest] Parsing: '{buyer_request}'")
@@ -71,24 +104,30 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
     buyer_budget = state.get("buyer_budget")
 
     if not search_query or buyer_budget is None:
-        if settings.LLM_API_KEY:
+        llm = get_llm_instance()
+        if llm:
             try:
-                from langchain_openai import ChatOpenAI
                 from langchain_core.messages import SystemMessage, HumanMessage
                 from app.prompts.agent_prompt import USER_INTENT_EXTRACTION_PROMPT
 
-                llm = ChatOpenAI(
-                    model=settings.LLM_MODEL,
-                    api_key=settings.LLM_API_KEY,
-                    temperature=settings.LLM_TEMPERATURE
-                )
                 prompt = USER_INTENT_EXTRACTION_PROMPT.format(buyer_request=buyer_request)
-                response = await llm.ainvoke([SystemMessage(content="You are an intent extractor."), HumanMessage(content=prompt)])
-                parsed = json.loads(response.content)
+                response = await llm.ainvoke([
+                    SystemMessage(content="You are an intent extractor. Return only valid JSON."),
+                    HumanMessage(content=prompt)
+                ])
+                # Clean possible markdown code fences
+                content = response.content.strip()
+                if content.startswith("```json"):
+                    content = content[7:]
+                if content.startswith("```"):
+                    content = content[3:]
+                if content.endswith("```"):
+                    content = content[:-3]
+                parsed = json.loads(content.strip())
                 search_query = search_query or parsed.get("search_query")
                 buyer_budget = buyer_budget if buyer_budget is not None else parsed.get("max_price")
             except Exception as e:
-                logger.warning(f"LLM extraction failed, falling back to rule parser: {e}")
+                logger.warning(f"LLM extraction error ({e}), using fallback parser.")
                 parsed = parse_intent_fallback(buyer_request)
                 search_query = search_query or parsed.get("search_query")
                 buyer_budget = buyer_budget if buyer_budget is not None else parsed.get("max_price")

@@ -9,9 +9,11 @@ class AgentSettings(BaseSettings):
     API_V1_PREFIX: str = "/api"
     
     # LLM Settings
-    LLM_PROVIDER: str = "openai"
+    LLM_PROVIDER: str = "gemini"  # "gemini" or "openai"
     LLM_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gpt-4o-mini"
+    GEMINI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = None
+    LLM_MODEL: str = "gemini-1.5-flash"
     LLM_TEMPERATURE: float = 0.1
     
     # Merchant defaults
@@ -27,6 +29,13 @@ class AgentSettings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
+
+    @property
+    def effective_api_key(self) -> Optional[str]:
+        """Resolve API key based on provider or explicit env variables."""
+        if self.LLM_PROVIDER.lower() in ["gemini", "google"]:
+            return self.GEMINI_API_KEY or self.LLM_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        return self.OPENAI_API_KEY or self.LLM_API_KEY or os.environ.get("OPENAI_API_KEY")
 
     @property
     def api_base_url(self) -> str:
