@@ -9,9 +9,7 @@ import {
   TrendingUp,
   ShieldCheck,
   CreditCard,
-  CheckCircle2,
   Clock,
-  Sparkles,
   Info,
   ChevronDown,
   ChevronUp
@@ -58,7 +56,7 @@ export default function AgentActivityPage() {
               System Architecture Rule
             </h3>
             <p className="text-sm font-semibold text-slate-100">
-              "AI decides the next tool. Tools execute deterministic actions."
+              &quot;AI decides the next tool. Tools execute deterministic actions.&quot;
             </p>
           </div>
         </div>
@@ -78,7 +76,7 @@ export default function AgentActivityPage() {
           <div>
             <span className="text-xs text-slate-400">Current Buyer Request:</span>
             <div className="text-base font-bold text-slate-900">
-              "Buy a work laptop under ₹70,000"
+              &quot;Buy a work laptop under ₹70,000&quot;
             </div>
           </div>
           <div className="flex items-center gap-3 text-xs">
@@ -141,7 +139,7 @@ export default function AgentActivityPage() {
                   </div>
 
                   <p className="text-xs text-slate-700 font-medium leading-relaxed">
-                    "{evt.explanation}"
+                    &quot;{evt.explanation}&quot;
                   </p>
 
                   {/* Expanded Data payload */}
