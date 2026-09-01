@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     
     RAZORPAY_KEY_ID: str = "rzp_test_TWfbZX7sZugjLd"
     RAZORPAY_KEY_SECRET: str = "dDKMrN7rmFmhUu5gHyPR26J1"
+    RAZORPAY_WEBHOOK_SECRET: str = "sample_webhook_secret_test"
     RAZORPAY_ENV: str = "test"
+    BACKEND_URL: str = "http://localhost:8000"
 
     @property
     def cors_origins_list(self) -> List[str]:
