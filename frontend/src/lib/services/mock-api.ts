@@ -61,12 +61,12 @@ export const mockCheckPolicy = async (
 };
 
 export const mockCreateRazorpayOrder = async (
-  _totalAmount: number,
-  _orderId: string
+  totalAmount: number,
+  orderId: string
 ): Promise<{ success: boolean; paymentId: string; apiCalls: number }> => {
   await new Promise((res) => setTimeout(res, 400));
   return {
-    success: true,
+    success: totalAmount > 0 && Boolean(orderId),
     paymentId: `pay_${Math.random().toString(36).substring(2, 12).toUpperCase()}`,
     apiCalls: 1
   };
