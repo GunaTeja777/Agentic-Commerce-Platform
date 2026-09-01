@@ -14,5 +14,22 @@
     "./backend",
     "./agent",
     "./src"
-  ]
+  ],
+  "pyrefly.searchPath": [
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agent",
+    "${workspaceFolder}/src",
+    "backend",
+    "agent",
+    "src"
+  ],
+  "python.pyrefly.extraSearchPaths": [
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agent",
+    "${workspaceFolder}/src",
+    "backend",
+    "agent",
+    "src"
+  ],
+  "python.envFile": "${workspaceFolder}/.env"
 }
