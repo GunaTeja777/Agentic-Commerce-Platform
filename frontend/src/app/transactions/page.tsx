@@ -89,13 +89,17 @@ export default function TransactionsPage() {
                   </td>
                   <td className="px-6 py-4">
                     <span
-                      className={`px-2.5 py-0.5 rounded text-[11px] font-semibold ${
-                        tx.paymentStatus === 'Successful'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-slate-100 text-slate-700'
+                      className={`inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-bold ${
+                        tx.paymentStatus === 'Captured' || tx.paymentStatus === 'Successful'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : tx.paymentStatus === 'Pending'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                          : tx.paymentStatus === 'Failed'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
                       }`}
                     >
-                      {tx.paymentStatus}
+                      {tx.paymentStatus === 'Not Attempted' ? 'Not attempted' : tx.paymentStatus}
                     </span>
                   </td>
                   <td className="px-6 py-4 font-mono text-slate-500 text-[11px]">
