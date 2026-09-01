@@ -2,8 +2,8 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 class PolicyCheckRequest(BaseModel):
-    merchant_id: int = Field(..., example=1)
-    amount_inr: float = Field(..., gt=0, example=66500)
+    merchant_id: int = Field(..., json_schema_extra={"example": 1})
+    amount_inr: float = Field(..., gt=0, json_schema_extra={"example": 66500})
 
 class PolicyCheckResponse(BaseModel):
     allowed: bool
