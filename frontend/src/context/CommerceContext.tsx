@@ -7,7 +7,8 @@ import {
   Transaction,
   AuditEvent,
   AgentEvent,
-  GrowthOpportunity
+  GrowthOpportunity,
+  OrderItem
 } from '../lib/types';
 import { INITIAL_PRODUCTS } from '../lib/mock-data/products';
 import { DEFAULT_POLICY } from '../lib/mock-data/policies';
@@ -80,7 +81,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
     const orderId = `order_${Math.floor(100 + Math.random() * 900)}`;
 
-    const items = [
+    const items: OrderItem[] = [
       {
         productId: params.selectedProduct.id,
         productName: params.selectedProduct.name,
