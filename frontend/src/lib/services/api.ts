@@ -1,8 +1,8 @@
-import { Product, MerchantPolicy, Transaction, AuditEvent } from '../types';
-import { INITIAL_PRODUCTS } from '../mock-data/products';
-import { DEFAULT_POLICY } from '../mock-data/policies';
-import { INITIAL_AUDIT_EVENTS } from '../mock-data/audit';
-import { INITIAL_TRANSACTIONS } from '../mock-data/transactions';
+import { Product, MerchantPolicy, Transaction, AuditEvent } from '@/lib/types';
+import { INITIAL_PRODUCTS } from '@/lib/mock-data/products';
+import { DEFAULT_POLICY } from '@/lib/mock-data/policies';
+import { INITIAL_AUDIT_EVENTS } from '@/lib/mock-data/audit';
+import { INITIAL_TRANSACTIONS } from '@/lib/mock-data/transactions';
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 

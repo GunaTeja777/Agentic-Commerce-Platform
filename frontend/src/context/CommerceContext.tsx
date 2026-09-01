@@ -9,14 +9,14 @@ import {
   AgentEvent,
   GrowthOpportunity,
   OrderItem
-} from '../lib/types';
-import { INITIAL_PRODUCTS } from '../mock-data/products';
-import { DEFAULT_POLICY } from '../mock-data/policies';
-import { INITIAL_TRANSACTIONS } from '../mock-data/transactions';
-import { INITIAL_AUDIT_EVENTS } from '../mock-data/audit';
-import { INITIAL_AGENT_EVENTS } from '../mock-data/agent-events';
-import { INITIAL_GROWTH_OPPORTUNITIES } from '../mock-data/growth';
-import { apiService, PaymentOrderResponse, PaymentVerifyResponse } from '../lib/services/api';
+} from '@/lib/types';
+import { INITIAL_PRODUCTS } from '@/lib/mock-data/products';
+import { DEFAULT_POLICY } from '@/lib/mock-data/policies';
+import { INITIAL_TRANSACTIONS } from '@/lib/mock-data/transactions';
+import { INITIAL_AUDIT_EVENTS } from '@/lib/mock-data/audit';
+import { INITIAL_AGENT_EVENTS } from '@/lib/mock-data/agent-events';
+import { INITIAL_GROWTH_OPPORTUNITIES } from '@/lib/mock-data/growth';
+import { apiService, PaymentOrderResponse, PaymentVerifyResponse } from '@/lib/services/api';
 
 interface RazorpayCheckoutResponse {
   razorpay_order_id: string;

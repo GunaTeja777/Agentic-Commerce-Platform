@@ -15,13 +15,15 @@ import {
   AlertTriangle
 } from 'lucide-react';
 
+import { PaymentOrderResponse } from '@/lib/services/api';
+
 export default function AIBuyerPage() {
   const { products, policy, executeInteractiveFlow, payWithRazorpay } = useCommerce();
   const [scenario, setScenario] = useState<'success' | 'blocked'>('success');
   const [acceptedOffer, setAcceptedOffer] = useState<boolean | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [purchasedTx, setPurchasedTx] = useState<Transaction | null>(null);
-  const [createdRazorpayOrder, setCreatedRazorpayOrder] = useState<any>(null);
+  const [createdRazorpayOrder, setCreatedRazorpayOrder] = useState<PaymentOrderResponse | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Products
@@ -69,7 +71,6 @@ export default function AIBuyerPage() {
   const subtotal = laptopProduct.price;
   const upsellPrice = acceptedOffer === true ? upsellProduct.price : 0;
   const total = subtotal + upsellPrice;
-  const buyerBudget = 70000;
   const isOverPolicy = total > policy.maxTransactionLimit;
 
   const handleReset = () => {
@@ -126,16 +127,22 @@ export default function AIBuyerPage() {
         },
         onFailure: (err) => {
           setIsProcessing(false);
-          setPaymentError(err.message || 'Payment was not completed');
+          const errorMsg = 'message' in err && typeof err.message === 'string'
+            ? err.message
+            : 'description' in err && typeof err.description === 'string'
+            ? err.description
+            : 'Payment was not completed';
+          setPaymentError(errorMsg);
           setPurchasedTx(prev => prev ? {
             ...prev,
             paymentStatus: 'Failed'
           } : null);
         }
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       setIsProcessing(false);
-      setPaymentError(err.message || 'Payment initiation failed');
+      const errorMsg = err instanceof Error ? err.message : 'Payment initiation failed';
+      setPaymentError(errorMsg);
     }
   };
 
