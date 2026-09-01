@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
-import { X, Play, ShieldX, CheckCircle2, ArrowRight, Lock, AlertTriangle, Cpu } from 'lucide-react';
+import { X, Play, ShieldX, CheckCircle2, Lock, AlertTriangle, Cpu } from 'lucide-react';
 
 export const FailureScenarioModal: React.FC = () => {
   const { isFailureModalOpen, setIsFailureModalOpen, policy, addTransaction, addAuditEvent } = useCommerce();
@@ -131,7 +131,7 @@ export const FailureScenarioModal: React.FC = () => {
                   <Lock className="w-4 h-4 text-rose-600" />
                   <div>
                     <span className="font-semibold">2. Policy Tool Evaluation</span>
-                    <p className="text-[11px] text-rose-700 font-medium">Checking: ₹75,000 {'>'} ₹{policy.maxTransactionLimit.toLocaleString()} Policy Maximum</p>
+                    <p className="text-[11px] text-rose-700 font-medium">Checking: ₹75,000 &gt; ₹{policy.maxTransactionLimit.toLocaleString()} Policy Maximum</p>
                   </div>
                 </div>
                 {step >= 2 && <span className="px-2 py-0.5 rounded bg-rose-600 text-white text-[10px] font-bold">✕ BLOCKED</span>}
@@ -166,8 +166,8 @@ export const FailureScenarioModal: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <div>
-                    <span className="font-semibold">4. Audit Log & AI Response</span>
-                    <p className="text-[11px] text-slate-600">Logged to audit trail & response returned to AI Buyer</p>
+                    <span className="font-semibold">4. Audit Log &amp; AI Response</span>
+                    <p className="text-[11px] text-slate-600">Logged to audit trail &amp; response returned to AI Buyer</p>
                   </div>
                 </div>
                 {step >= 4 && <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-semibold">Completed</span>}
@@ -183,7 +183,7 @@ export const FailureScenarioModal: React.FC = () => {
                 <span>Final Output Delivered to AI Buyer:</span>
               </div>
               <p className="font-mono bg-white p-2.5 rounded border border-rose-200 text-[11px] text-slate-800">
-                "Purchase blocked because the transaction (₹75,000) exceeds the merchant's ₹{policy.maxTransactionLimit.toLocaleString()} maximum limit."
+                &quot;Purchase blocked because the transaction exceeds the merchant&apos;s ₹{policy.maxTransactionLimit.toLocaleString()} maximum.&quot;
               </p>
               <div className="flex items-center justify-between text-[11px] text-rose-800 pt-1">
                 <span>Deterministic Result: Guaranteed Safety</span>

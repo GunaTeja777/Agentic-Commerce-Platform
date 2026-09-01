@@ -8,8 +8,7 @@ import {
   CheckCircle2,
   Lock,
   AlertTriangle,
-  Cpu,
-  ArrowRight
+  Cpu
 } from 'lucide-react';
 
 export default function FailureDemoPage() {
@@ -171,7 +170,7 @@ export default function FailureDemoPage() {
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600" />
               <div>
-                <span className="font-bold text-sm">4. Audit Logged & Response Returned</span>
+                <span className="font-bold text-sm">4. Audit Logged &amp; Response Returned</span>
                 <p className="text-xs text-slate-600">Recorded block reason into merchant audit trail</p>
               </div>
             </div>
@@ -188,7 +187,7 @@ export default function FailureDemoPage() {
             <span>Response Returned to AI Buyer:</span>
           </div>
           <p className="font-mono bg-white p-3 rounded-lg border border-rose-200 text-slate-900 text-xs font-semibold">
-            "Purchase blocked because the transaction (₹75,000) exceeds the merchant's ₹{policy.maxTransactionLimit.toLocaleString()} maximum limit."
+            &quot;Purchase blocked because the transaction (₹75,000) exceeds the merchant&apos;s ₹{policy.maxTransactionLimit.toLocaleString()} maximum limit.&quot;
           </p>
           <div className="flex items-center justify-between text-slate-600 font-mono text-[11px] pt-1">
             <span>Guaranteed Security Enforcement</span>

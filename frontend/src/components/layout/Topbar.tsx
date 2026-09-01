@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Bell, ShieldCheck, User, Sparkles } from 'lucide-react';
+import { Bell, ShieldCheck, Sparkles } from 'lucide-react';
 import { useCommerce } from '@/context/CommerceContext';
 
 export const Topbar: React.FC = () => {
