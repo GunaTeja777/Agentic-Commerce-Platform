@@ -1,7 +1,7 @@
 import hmac
 import hashlib
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.core.config import settings
 
 
@@ -63,7 +63,7 @@ async def test_3_and_4_server_calculates_total_and_ignores_client_amount(async_c
         "buyer_id": "buyer-test-3",
         "items": [
             {"product_id": 1001, "quantity": 1},  # 65000
-            {"product_id": 1004, "quantity": 1}   # 1500
+            {"product_id": 1021, "quantity": 1}   # 1500 (AeroMouse X1)
         ]
     }
     order_resp = await async_client.post("/api/orders", json=order_payload)
@@ -71,7 +71,7 @@ async def test_3_and_4_server_calculates_total_and_ignores_client_amount(async_c
     order_data = order_resp.json()
     assert order_data["total_inr"] == 66500.0
 
-    # Payment create request schema only accepts order_id, extra amount field is ignored / prohibited
+    # Payment create request schema only accepts order_id, extra amount field is ignored
     pay_resp = await async_client.post("/api/payments/create", json={
         "order_id": order_data["order_id"],
         "amount": 100  # Attempted override to 1 INR
@@ -88,13 +88,15 @@ async def test_5_payment_signature_verification_works(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-5",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     pay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert pay_resp.status_code == 200
     rzp_order_id = pay_resp.json()["razorpay_order_id"]
-    fake_payment_id = "pay_test_signature_valid_123"
+    fake_payment_id = "pay_test_sig_valid_123"
 
     valid_signature = generate_test_signature(
         order_id=rzp_order_id,
@@ -121,11 +123,13 @@ async def test_6_invalid_payment_signature_is_rejected(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-6",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     pay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert pay_resp.status_code == 200
     rzp_order_id = pay_resp.json()["razorpay_order_id"]
 
     verify_resp = await async_client.post("/api/payments/verify", json={
@@ -156,20 +160,23 @@ async def test_8_captured_payment_updates_transaction(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-8",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
     pay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert pay_resp.status_code == 200
     rzp_order_id = pay_resp.json()["razorpay_order_id"]
     payment_id = "pay_captured_update_789"
 
     sig = generate_test_signature(rzp_order_id, payment_id, settings.RAZORPAY_KEY_SECRET)
-    await async_client.post("/api/payments/verify", json={
+    verify_resp = await async_client.post("/api/payments/verify", json={
         "order_id": order_id,
         "razorpay_order_id": rzp_order_id,
         "razorpay_payment_id": payment_id,
         "razorpay_signature": sig
     })
+    assert verify_resp.status_code == 200
 
     # Check order status via API
     get_order_resp = await async_client.get(f"/api/orders/{order_id}")
@@ -183,8 +190,9 @@ async def test_9_failed_payment_updates_transaction(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-9",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     fail_resp = await async_client.post("/api/payments/fail", json={
@@ -201,20 +209,23 @@ async def test_10_already_paid_order_cannot_be_paid_again(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-10",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
     pay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert pay_resp.status_code == 200
     rzp_order_id = pay_resp.json()["razorpay_order_id"]
     payment_id = "pay_already_paid_10"
 
     sig = generate_test_signature(rzp_order_id, payment_id, settings.RAZORPAY_KEY_SECRET)
-    await async_client.post("/api/payments/verify", json={
+    verify_resp = await async_client.post("/api/payments/verify", json={
         "order_id": order_id,
         "razorpay_order_id": rzp_order_id,
         "razorpay_payment_id": payment_id,
         "razorpay_signature": sig
     })
+    assert verify_resp.status_code == 200
 
     # Try creating payment again for already paid order
     repay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
@@ -228,15 +239,18 @@ async def test_11_duplicate_payment_request_idempotency(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-11",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     resp1 = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert resp1.status_code == 200
     rzp_order1 = resp1.json()["razorpay_order_id"]
 
     # Second call for the same pending order
     resp2 = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert resp2.status_code == 200
     rzp_order2 = resp2.json()["razorpay_order_id"]
 
     assert rzp_order1 == rzp_order2  # Idempotently reuses existing pending test order
@@ -248,8 +262,9 @@ async def test_12_policy_service_failure_prevents_payment(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-12",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     # Mock PolicyService check_policy to simulate failure
@@ -300,11 +315,13 @@ async def test_16_payment_secret_never_exposed(async_client):
     order_resp = await async_client.post("/api/orders", json={
         "merchant_id": 1,
         "buyer_id": "buyer-test-16",
-        "items": [{"product_id": 1004, "quantity": 1}]
+        "items": [{"product_id": 1021, "quantity": 1}]
     })
+    assert order_resp.status_code == 201
     order_id = order_resp.json()["order_id"]
 
     pay_resp = await async_client.post("/api/payments/create", json={"order_id": order_id})
+    assert pay_resp.status_code == 200
     pay_json_text = pay_resp.text
 
     assert settings.RAZORPAY_KEY_SECRET not in pay_json_text

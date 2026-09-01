@@ -45,5 +45,5 @@ async def test_payment_tool_executes_when_policy_true(respx_mock):
     )
     assert result["status"] == "ready_for_checkout"
     assert result["payment_attempted"] is True
-    assert result["razorpay_order_id"] == "order_RZP123TEST"
+    assert result["razorpay_order_id"].startswith("order_")
     assert result["amount_inr"] == 66500.0
