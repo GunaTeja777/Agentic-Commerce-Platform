@@ -46,7 +46,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [policy, setPolicy] = useState<MerchantPolicy>(DEFAULT_POLICY);
   const [transactions, setTransactions] = useState<Transaction[]>(INITIAL_TRANSACTIONS);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(INITIAL_AUDIT_EVENTS);
-  const [agentEvents, setAgentEvents] = useState<AgentEvent[]>(INITIAL_AGENT_EVENTS);
+  const [agentEvents] = useState<AgentEvent[]>(INITIAL_AGENT_EVENTS);
   const [growthOpportunities, setGrowthOpportunities] = useState<GrowthOpportunity[]>(INITIAL_GROWTH_OPPORTUNITIES);
   const [isFailureModalOpen, setIsFailureModalOpen] = useState<boolean>(false);
 
