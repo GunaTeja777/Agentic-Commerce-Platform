@@ -9,7 +9,6 @@ import {
   CreditCard,
   History,
   ArrowDown,
-  CheckCircle2,
   Lock,
   Cpu
 } from 'lucide-react';
@@ -37,7 +36,7 @@ export default function ArchitecturePage() {
               <span>AI BUYER (External Agent)</span>
             </div>
             <p className="text-[11px] text-purple-200 mt-1 font-sans">
-              Sends autonomous purchase requests on buyer's behalf
+              Sends autonomous purchase requests on buyer&apos;s behalf
             </p>
           </div>
 
@@ -53,14 +52,14 @@ export default function ArchitecturePage() {
         <div className="flex flex-col items-center">
           <div className="bg-indigo-900 text-white border-2 border-indigo-400 rounded-xl px-8 py-4 shadow-md text-center max-w-md w-full relative">
             <div className="absolute -top-3 right-4 bg-amber-400 text-slate-950 font-sans font-bold text-[10px] px-2 py-0.5 rounded">
-              "Decides next action"
+              &quot;Decides next action&quot;
             </div>
             <div className="flex items-center justify-center gap-2 font-bold text-sm">
               <Cpu className="w-5 h-5 text-indigo-300" />
               <span>MERCHANT AI AGENT / ORCHESTRATOR</span>
             </div>
             <p className="text-[11px] text-indigo-200 mt-1 font-sans">
-              LangGraph orchestration evaluating intent & tools needed
+              LangGraph orchestration evaluating intent &amp; tools needed
             </p>
           </div>
 
@@ -82,7 +81,7 @@ export default function ArchitecturePage() {
                 <span>Catalog Tool</span>
               </div>
               <p className="text-[11px] text-slate-600 font-sans leading-tight">
-                "Reads product data & checks inventory stock"
+                &quot;Reads product data &amp; checks inventory stock&quot;
               </p>
               <span className="inline-block text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-mono font-semibold">
                 Read-Only
@@ -96,7 +95,7 @@ export default function ArchitecturePage() {
                 <span>Growth Tool</span>
               </div>
               <p className="text-[11px] text-slate-600 font-sans leading-tight">
-                "Finds data-backed cross-sell / upsell pairs"
+                &quot;Finds data-backed cross-sell / upsell pairs&quot;
               </p>
               <span className="inline-block text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-mono font-semibold">
                 Revenue Boost
@@ -110,7 +109,7 @@ export default function ArchitecturePage() {
                 <span>Policy Tool</span>
               </div>
               <p className="text-[11px] text-purple-900 font-sans leading-tight">
-                "Deterministic limit & merchant rule check"
+                &quot;Deterministic limit &amp; merchant rule check&quot;
               </p>
               <span className="inline-block text-[10px] bg-purple-100 text-purple-800 px-2 py-0.5 rounded font-mono font-semibold">
                 Non-LLM Rule
@@ -124,7 +123,7 @@ export default function ArchitecturePage() {
                 <span>Payment Tool</span>
               </div>
               <p className="text-[11px] text-emerald-900 font-sans leading-tight">
-                "Calls Razorpay test payment API"
+                &quot;Calls Razorpay test payment API&quot;
               </p>
               <span className="inline-block text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-semibold">
                 Executes Money
@@ -170,7 +169,7 @@ export default function ArchitecturePage() {
           <div className="bg-white border-2 border-amber-500 rounded-xl p-4 shadow-sm text-center space-y-1">
             <div className="font-bold text-xs text-slate-900 flex items-center justify-center gap-1.5">
               <History className="w-4 h-4 text-amber-600" />
-              <span>Audit & Explanation</span>
+              <span>Audit &amp; Explanation</span>
             </div>
             <p className="text-[11px] text-slate-500 font-sans">Logs who, what, when, why</p>
           </div>

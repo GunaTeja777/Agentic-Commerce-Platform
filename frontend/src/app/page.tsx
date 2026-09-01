@@ -6,7 +6,6 @@ import {
   TrendingUp,
   DollarSign,
   ShoppingCart,
-  CheckCircle2,
   ShieldCheck,
   ArrowUpRight,
   Sparkles,
@@ -19,10 +18,7 @@ import {
   Area,
   XAxis,
   YAxis,
-  Tooltip,
-  BarChart,
-  Bar,
-  Legend
+  Tooltip
 } from 'recharts';
 
 const CHART_DATA = [
@@ -35,13 +31,8 @@ const CHART_DATA = [
   { day: 'Sun', normal: 19000, aiAssisted: 34200 }
 ];
 
-const BASKET_COMPARISON = [
-  { type: 'Normal Basket', amount: 4200 },
-  { type: 'AI-assisted Basket', amount: 5100 }
-];
-
 export default function OverviewPage() {
-  const { policy, transactions, auditEvents } = useCommerce();
+  const { policy } = useCommerce();
 
   return (
     <div className="space-y-6">
@@ -167,7 +158,7 @@ export default function OverviewPage() {
                   tickFormatter={(v) => `₹${v / 1000}k`}
                 />
                 <Tooltip
-                  formatter={(value: any) => [`₹${Number(value).toLocaleString()}`, '']}
+                  formatter={(value: unknown) => [`₹${Number(value).toLocaleString()}`, '']}
                   contentStyle={{ backgroundColor: '#1e293b', borderRadius: '8px', color: '#fff' }}
                 />
                 <Area
@@ -280,7 +271,7 @@ export default function OverviewPage() {
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-mono text-slate-400">09:42:01</span>
               <span className="font-semibold text-slate-800">Buyer request received</span>
-              <span className="text-slate-500 font-mono text-[11px]">"I need a laptop for work under ₹70,000..."</span>
+              <span className="text-slate-500 font-mono text-[11px]">&quot;I need a laptop for work under ₹70,000...&quot;</span>
             </div>
           </div>
 

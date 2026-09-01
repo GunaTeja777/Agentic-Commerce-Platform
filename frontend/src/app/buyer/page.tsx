@@ -2,24 +2,20 @@
 
 import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
+import { Transaction } from '@/lib/types';
 import {
   Bot,
-  UserCheck,
   CheckCircle2,
-  Plus,
   ShieldCheck,
-  Zap,
-  ArrowRight,
   Sparkles,
-  CreditCard,
-  AlertCircle
+  CreditCard
 } from 'lucide-react';
 
 export default function AIBuyerPage() {
   const { products, policy, executeInteractiveFlow } = useCommerce();
   const [acceptedOffer, setAcceptedOffer] = useState<boolean | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [purchasedTx, setPurchasedTx] = useState<any>(null);
+  const [purchasedTx, setPurchasedTx] = useState<Transaction | null>(null);
 
   const mainProduct = products[0]; // Laptop A (65,000)
   const upsellProduct = products[3]; // Wireless Mouse (1,500)
@@ -28,7 +24,6 @@ export default function AIBuyerPage() {
   const upsellPrice = acceptedOffer === true ? upsellProduct.price : 0;
   const total = subtotal + upsellPrice;
   const buyerBudget = 70000;
-  const isWithinBudget = total <= buyerBudget;
 
   const handleAuthorize = async () => {
     setIsProcessing(true);
@@ -91,7 +86,7 @@ export default function AIBuyerPage() {
               </div>
               <div className="bg-purple-50 border border-purple-200 rounded-2xl rounded-tl-none p-3.5 max-w-md text-xs text-purple-950 shadow-2xs">
                 <p className="font-semibold text-purple-900 text-[11px] mb-1">AI Buyer Prompt:</p>
-                "I need a laptop for work under ₹70,000 with good battery life."
+                &quot;I need a laptop for work under ₹70,000 with good battery life.&quot;
               </div>
             </div>
 
@@ -102,7 +97,7 @@ export default function AIBuyerPage() {
                   <Bot className="w-3.5 h-3.5" />
                   <span>Merchant Agent:</span>
                 </div>
-                "I found <strong>Laptop A</strong> for ₹65,000. It has the best battery rating among matching products in our catalog."
+                &quot;I found <strong>Laptop A</strong> for ₹65,000. It has the best battery rating among matching products in our catalog.&quot;
               </div>
               <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold shrink-0">
                 MA
@@ -138,7 +133,7 @@ export default function AIBuyerPage() {
                   <span>Merchant Agent (Growth Tool Recommendation):</span>
                 </div>
                 <p>
-                  "A compatible <strong>Wireless Mouse</strong> is frequently bought with this laptop and is currently in stock for ₹1,500. Add it to your basket?"
+                  &quot;A compatible <strong>Wireless Mouse</strong> is frequently bought with this laptop and is currently in stock for ₹1,500. Add it to your basket?&quot;
                 </p>
 
                 {/* Offer Action Buttons */}
@@ -250,7 +245,7 @@ export default function AIBuyerPage() {
             </div>
 
             <p className="text-xs text-slate-500">
-              The merchant's policy engine autonomously validates whether money is permitted to move before triggering payments.
+              The merchant&apos;s policy engine autonomously validates whether money is permitted to move before triggering payments.
             </p>
 
             <div className="space-y-3 text-xs bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -311,9 +306,9 @@ export default function AIBuyerPage() {
               Core Architecture Principle
             </h4>
             <p className="text-xs text-slate-300 leading-relaxed">
-              "The AI agent decides <strong>WHAT TO DO NEXT</strong>.
+              &quot;The AI agent decides <strong>WHAT TO DO NEXT</strong>.
               <br />
-              The Policy Engine decides <strong>WHETHER MONEY IS ALLOWED TO MOVE</strong>."
+              The Policy Engine decides <strong>WHETHER MONEY IS ALLOWED TO MOVE</strong>.&quot;
             </p>
             <p className="text-[11px] text-slate-400 border-t border-slate-800 pt-2">
               External AI buyers interact via structured APIs. Transactions are guaranteed safe by deterministic merchant boundaries.
