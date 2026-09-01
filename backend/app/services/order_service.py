@@ -184,3 +184,28 @@ class OrderService:
             "policy_reason": policy_reason,
             "calculated_items": calculated_items
         }
+
+    @staticmethod
+    async def get_order(db: AsyncSession, order_id: int) -> Optional[Order]:
+        from sqlalchemy.orm import selectinload
+        query = (
+            select(Order)
+            .options(selectinload(Order.items).selectinload(OrderItem.product), selectinload(Order.transaction))
+            .where(Order.id == order_id)
+        )
+        res = await db.execute(query)
+        return res.scalar_one_or_none()
+
+    @staticmethod
+    async def list_orders(db: AsyncSession, merchant_id: Optional[int] = None, limit: int = 50) -> List[Order]:
+        from sqlalchemy.orm import selectinload
+        query = (
+            select(Order)
+            .options(selectinload(Order.items).selectinload(OrderItem.product), selectinload(Order.transaction))
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+        )
+        if merchant_id:
+            query = query.where(Order.merchant_id == merchant_id)
+        res = await db.execute(query)
+        return list(res.scalars().all())

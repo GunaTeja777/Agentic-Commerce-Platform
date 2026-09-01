@@ -3,6 +3,7 @@ from app.api.routes.products import router as products_router
 from app.api.routes.growth import router as growth_router
 from app.api.routes.policies import router as policies_router
 from app.api.routes.orders import router as orders_router
+from app.api.routes.payments import router as payments_router
 from app.api.routes.audit import router as audit_router
 
 __all__ = [
@@ -11,5 +12,6 @@ __all__ = [
     "growth_router",
     "policies_router",
     "orders_router",
+    "payments_router",
     "audit_router",
 ]

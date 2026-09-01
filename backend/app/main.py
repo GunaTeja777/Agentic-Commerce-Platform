@@ -8,13 +8,14 @@ from app.api.routes import (
     growth_router,
     policies_router,
     orders_router,
+    payments_router,
     audit_router,
 )
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Agentic Commerce Backend Foundation (Phase 2) with FastAPI, PostgreSQL, and Policy Engine",
+    description="Agentic Commerce Backend Foundation (Phase 2 & Phase 4) with FastAPI, PostgreSQL, Policy Engine, and Razorpay Test Mode",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -36,6 +37,7 @@ app.include_router(products_router, prefix=settings.API_V1_STR)
 app.include_router(growth_router, prefix=settings.API_V1_STR)
 app.include_router(policies_router, prefix=settings.API_V1_STR)
 app.include_router(orders_router, prefix=settings.API_V1_STR)
+app.include_router(payments_router, prefix=settings.API_V1_STR)
 app.include_router(audit_router, prefix=settings.API_V1_STR)
 
 @app.get("/", include_in_schema=False)

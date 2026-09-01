@@ -29,6 +29,11 @@ class AgentState(TypedDict, total=False):
     # Deterministic Policy Check
     policy_result: Optional[Dict[str, Any]]
 
+    # Payment & Razorpay Test Order
+    order_id: Optional[int]
+    payment_info: Optional[Dict[str, Any]]
+    payment_status: Optional[str]
+
     # Workflow lifecycle & messaging
     status: str
     current_step: str

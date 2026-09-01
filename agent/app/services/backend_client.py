@@ -167,6 +167,82 @@ class BackendClient:
             logger.error(f"Policy service unreachable / failed: {e}")
             raise PolicyServiceUnavailableError(f"Policy engine unavailable: {str(e)}") from e
 
+    async def create_order(
+        self,
+        merchant_id: int,
+        buyer_id: str,
+        items: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Create internal order in PostgreSQL database via POST /api/orders.
+        Calculates prices securely server-side.
+        """
+        url = f"{self.base_url}/orders"
+        payload = {
+            "merchant_id": merchant_id,
+            "buyer_id": buyer_id,
+            "items": [{"product_id": item["product_id"], "quantity": item.get("quantity", 1)} for item in items]
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Order creation HTTP error: {e.response.status_code} - {e.response.text}")
+            raise BackendClientError(f"Backend order error: HTTP {e.response.status_code} - {e.response.text}") from e
+        except Exception as e:
+            logger.error(f"Failed to create order: {e}")
+            raise BackendClientError(f"Unable to connect to Order Service: {str(e)}") from e
+
+    async def create_payment_order(self, order_id: int) -> Dict[str, Any]:
+        """
+        Initiate Razorpay test order creation via POST /api/payments/create.
+        Amount is verified server-side.
+        """
+        url = f"{self.base_url}/payments/create"
+        payload = {"order_id": order_id}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Payment order creation HTTP error: {e.response.status_code} - {e.response.text}")
+            raise BackendClientError(f"Backend payment error: HTTP {e.response.status_code} - {e.response.text}") from e
+        except Exception as e:
+            logger.error(f"Failed to create payment order: {e}")
+            raise BackendClientError(f"Unable to connect to Payment Service: {str(e)}") from e
+
+    async def verify_payment(
+        self,
+        order_id: int,
+        razorpay_order_id: str,
+        razorpay_payment_id: str,
+        razorpay_signature: str
+    ) -> Dict[str, Any]:
+        """
+        Cryptographically verify Razorpay signature via POST /api/payments/verify.
+        """
+        url = f"{self.base_url}/payments/verify"
+        payload = {
+            "order_id": order_id,
+            "razorpay_order_id": razorpay_order_id,
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_signature": razorpay_signature
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Payment verification HTTP error: {e.response.status_code} - {e.response.text}")
+            raise BackendClientError(f"Payment verification failed: HTTP {e.response.status_code}") from e
+        except Exception as e:
+            logger.error(f"Failed to verify payment: {e}")
+            raise BackendClientError(f"Unable to connect to Payment Verification Service: {str(e)}") from e
+
 
 # Singleton default client
 backend_client = BackendClient()
