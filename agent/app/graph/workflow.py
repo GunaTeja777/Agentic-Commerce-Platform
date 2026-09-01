@@ -11,6 +11,8 @@ from app.graph.nodes import (
     growth_recommendation_node,
     build_basket_node,
     policy_check_node,
+    payment_initiation_node,
+    policy_blocked_node,
 )
 
 logger = logging.getLogger("agent.graph.workflow")
@@ -30,9 +32,26 @@ def route_after_growth(state: AgentState) -> Literal["build_basket", "__end__"]:
     return "build_basket"
 
 
+def route_after_policy(state: AgentState) -> Literal["payment_initiation", "policy_blocked", "__end__"]:
+    """
+    CRITICAL POLICY GATE ROUTING:
+    Strictly deterministic routing based on policy_result.allowed.
+    The LLM never makes this decision.
+    """
+    status = state.get("status")
+    if status == AgentStatus.ERROR.value:
+        return END
+
+    policy_res = state.get("policy_result") or {}
+    if policy_res.get("allowed", False) is True:
+        return "payment_initiation"
+    return "policy_blocked"
+
+
 def create_agent_graph() -> StateGraph:
     """
     Constructs the LangGraph workflow for the Agentic Commerce Merchant Growth Agent.
+    Enforces the Trust Boundary: Policy Gate authorization is required before Payment Tool.
     """
     workflow = StateGraph(AgentState)
 
@@ -43,6 +62,8 @@ def create_agent_graph() -> StateGraph:
     workflow.add_node("growth_recommendation", growth_recommendation_node)
     workflow.add_node("build_basket", build_basket_node)
     workflow.add_node("policy_check", policy_check_node)
+    workflow.add_node("payment_initiation", payment_initiation_node)
+    workflow.add_node("policy_blocked", policy_blocked_node)
 
     # Edge Connections
     workflow.add_edge(START, "understand_request")
@@ -65,7 +86,17 @@ def create_agent_graph() -> StateGraph:
         }
     )
     workflow.add_edge("build_basket", "policy_check")
-    workflow.add_edge("policy_check", END)
+    workflow.add_conditional_edges(
+        "policy_check",
+        route_after_policy,
+        {
+            "payment_initiation": "payment_initiation",
+            "policy_blocked": "policy_blocked",
+            END: END
+        }
+    )
+    workflow.add_edge("payment_initiation", END)
+    workflow.add_edge("policy_blocked", END)
 
     return workflow
 

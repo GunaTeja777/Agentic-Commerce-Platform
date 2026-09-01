@@ -89,9 +89,9 @@ async def chat_agent(payload: AgentChatRequest):
         if status == AgentStatus.AWAITING_BUYER_APPROVAL:
             next_action = "buyer_confirmation_required"
         elif status == AgentStatus.READY_FOR_PAYMENT:
-            next_action = "ready_for_payment_phase_4"
+            next_action = "ready_for_razorpay_checkout"
         elif status == AgentStatus.BLOCKED:
-            next_action = "modify_cart_or_request_override"
+            next_action = "blocked_by_policy"
 
         return AgentResponse(
             status=status,
@@ -103,6 +103,8 @@ async def chat_agent(payload: AgentChatRequest):
             subtotal_inr=state.get("subtotal", 0.0),
             total_inr=state.get("total", 0.0),
             policy_result=policy_res,
+            order_id=state.get("order_id"),
+            payment_info=state.get("payment_info"),
             next_action=next_action
         )
     except Exception as e:

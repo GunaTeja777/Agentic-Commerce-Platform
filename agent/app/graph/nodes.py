@@ -333,7 +333,7 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
         }
 
     if not is_allowed:
-        # POLICY BLOCKED
+        # POLICY BLOCKED - Fail closed, strictly refuse payment
         msg = f"Purchase blocked because the total of ₹{total:,.2f} exceeds the merchant's policy limit (Limit: ₹{max_limit:,.2f}). Reason: {reason}"
         logger.warning(f"[Node: PolicyCheck] Blocked by policy engine: {reason}")
         return {
@@ -343,14 +343,102 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
             "final_message": msg
         }
 
-    # POLICY ALLOWED -> READY FOR PAYMENT (NO PAYMENT PERFORMED)
-    cart_desc = ", ".join([f"{item['product_name']} (₹{item['price_inr']:,.2f})" for item in state.get("cart_items", [])])
-    msg = f"Policy approved: Transaction is within allowed limit. Your basket [{cart_desc}] with total ₹{total:,.2f} is ready for payment."
-    logger.info(f"[Node: PolicyCheck] Approved by policy engine. Status: ready_for_payment")
-
+    # POLICY ALLOWED
+    logger.info(f"[Node: PolicyCheck] Approved by policy engine (₹{total:,.2f} <= ₹{max_limit:,.2f})")
     return {
         "policy_result": result,
-        "status": AgentStatus.READY_FOR_PAYMENT.value,
+        "status": AgentStatus.CHECKING_POLICY.value,
         "current_step": "policy_approved",
+        "final_message": f"Policy approved: Total ₹{total:,.2f} is within limit ₹{max_limit:,.2f}."
+    }
+
+
+async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Payment Stage Node.
+    Executed ONLY after deterministic Policy Gate returns allowed == True.
+    Creates internal DB order and initiates Razorpay test order.
+    """
+    policy_res = state.get("policy_result") or {}
+    if not policy_res.get("allowed", False):
+        logger.warning("[Node: PaymentInitiation] Policy Gate blocked payment initiation.")
+        return {
+            "status": AgentStatus.BLOCKED.value,
+            "current_step": "payment_blocked_by_policy",
+            "final_message": "Payment initiation was blocked by the policy gate."
+        }
+
+    merchant_id = state.get("merchant_id", settings.DEFAULT_MERCHANT_ID)
+    buyer_id = state.get("buyer_id", "demo-ai-buyer")
+    cart_items = state.get("cart_items", [])
+    total = state.get("total", 0.0)
+
+    try:
+        # 1. Create Order in PostgreSQL
+        order_res = await backend_client.create_order(
+            merchant_id=merchant_id,
+            buyer_id=buyer_id,
+            items=cart_items
+        )
+        order_id = order_res.get("order_id")
+        logger.info(f"[Node: PaymentInitiation] DB Order #{order_id} created successfully")
+
+        # 2. Call Payment Tool to generate Razorpay Test Order
+        payment_data = await execute_payment_initiation(
+            merchant_id=merchant_id,
+            order_id=order_id,
+            policy_allowed=True
+        )
+
+        razorpay_order_id = payment_data.get("razorpay_order_id")
+        cart_desc = ", ".join([f"{item['product_name']} (₹{item['price_inr']:,.2f})" for item in cart_items])
+        msg = (
+            f"✓ **Policy Approved**: Total ₹{total:,.2f} verified.\n"
+            f"✓ **Order Created**: ORD-{order_id}\n"
+            f"✓ **Razorpay Test Order**: {razorpay_order_id}\n\n"
+            f"Items: {cart_desc}\n"
+            f"Ready for Razorpay Test Mode checkout."
+        )
+
+        return {
+            "order_id": order_id,
+            "payment_info": payment_data,
+            "payment_status": "ready_for_checkout",
+            "status": AgentStatus.READY_FOR_PAYMENT.value,
+            "current_step": "payment_order_created",
+            "final_message": msg
+        }
+    except Exception as e:
+        logger.error(f"[Node: PaymentInitiation] Error preparing payment: {e}")
+        return {
+            "status": AgentStatus.ERROR.value,
+            "current_step": "payment_preparation_failed",
+            "final_message": f"Payment preparation encountered an error: {str(e)}",
+            "error_message": str(e)
+        }
+
+
+async def policy_blocked_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Blocked Stage Node.
+    Explicitly confirms that Razorpay was NOT called and payment was NOT attempted.
+    """
+    total = state.get("total", 0.0)
+    policy_res = state.get("policy_result") or {}
+    max_limit = policy_res.get("max_transaction_inr", 70000.0)
+    reason = policy_res.get("reason", "Transaction exceeds maximum transaction limit")
+
+    msg = (
+        f"✕ **Purchase Blocked**: I can't proceed because the transaction total of "
+        f"₹{total:,.2f} exceeds the merchant's ₹{max_limit:,.2f} limit.\n"
+        f"**Reason**: {reason}\n\n"
+        f"**Payment Status**: Not attempted (Razorpay was NOT called)."
+    )
+
+    return {
+        "status": AgentStatus.BLOCKED.value,
+        "payment_status": "blocked",
+        "payment_info": None,
+        "current_step": "policy_blocked_final",
         "final_message": msg
     }

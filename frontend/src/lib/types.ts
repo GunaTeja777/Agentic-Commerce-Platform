@@ -29,16 +29,18 @@ export interface OrderItem {
 
 export interface Transaction {
   id: string;
+  orderId?: number;
   buyer: string;
   items: OrderItem[];
   subtotal: number;
   upsellTotal: number;
   totalAmount: number;
   policyStatus: 'Approved' | 'Blocked';
-  paymentStatus: 'Successful' | 'Not Attempted' | 'Blocked' | 'Pending';
+  paymentStatus: 'Captured' | 'Successful' | 'Not Attempted' | 'Blocked' | 'Pending' | 'Failed';
   timestamp: string;
   policyReason: string;
   razorpayPaymentId?: string;
+  razorpayOrderId?: string;
   razorpayApiCalls: number;
 }
 
