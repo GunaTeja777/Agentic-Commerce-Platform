@@ -9,6 +9,8 @@ from app.schemas.agent_schemas import AgentStatus
 from app.tools.catalog_tool import execute_catalog_search
 from app.tools.growth_tool import execute_growth_recommendation
 from app.tools.policy_tool import execute_policy_check
+from app.tools.payment_tool import execute_payment_initiation
+from app.services.backend_client import backend_client, BackendClientError
 
 logger = logging.getLogger("agent.graph.nodes")
 

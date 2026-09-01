@@ -94,6 +94,8 @@ class AgentResponse(BaseModel):
     subtotal_inr: float = 0.0
     total_inr: float = 0.0
     policy_result: Optional[PolicyResult] = None
+    order_id: Optional[int] = None
+    payment_info: Optional[Dict[str, Any]] = None
     next_action: Optional[str] = None
 
 
