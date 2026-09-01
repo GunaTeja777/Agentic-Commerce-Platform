@@ -7,7 +7,9 @@ authors = [
     { name = "gunateja777", email = "gunateja951@gmail.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "psycopg2-binary>=2.9.12",
+]
 
 [project.scripts]
 ai-growth-agentic-commerce = "ai_growth_agentic_commerce:main"
