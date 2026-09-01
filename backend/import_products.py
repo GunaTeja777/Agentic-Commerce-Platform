@@ -9,7 +9,7 @@ DB_CONFIG = {
     "port": 5432,
     "user": "postgres",
     "password": "4538",
-    "dbname": "postgres",
+    "dbname": "agentic_commerce",
 }
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
