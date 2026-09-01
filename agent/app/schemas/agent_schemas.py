@@ -1,0 +1,109 @@
+from enum import Enum
+from typing import List, Optional, Any, Dict
+from pydantic import BaseModel, Field, ConfigDict
+
+
+class AgentStatus(str, Enum):
+    """Lifecycle statuses for the LangGraph Agent."""
+    SEARCHING = "searching"
+    RECOMMENDATION_PENDING = "recommendation_pending"
+    AWAITING_BUYER_APPROVAL = "awaiting_buyer_approval"
+    CHECKING_POLICY = "checking_policy"
+    READY_FOR_PAYMENT = "ready_for_payment"
+    BLOCKED = "blocked"
+    ERROR = "error"
+
+
+class ProductResult(BaseModel):
+    """Product model returned by catalog search."""
+    product_id: int
+    product_name: str
+    category: str
+    price_inr: float
+    stock_quantity: int
+    rating: Optional[float] = 0.0
+    description: Optional[str] = None
+    tags: Optional[List[str]] = Field(default_factory=list)
+    image_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProductCatalogResponse(BaseModel):
+    """Catalog response format."""
+    total: int
+    products: List[ProductResult]
+
+
+class GrowthRecommendationItem(BaseModel):
+    """Individual upsell / cross-sell item."""
+    id: int
+    name: str
+    price_inr: float
+    stock: int
+    relationship_type: str = "frequently_bought_with"
+    reason: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class GrowthBaseProduct(BaseModel):
+    """Base product for growth recommendations."""
+    id: int
+    name: str
+    price_inr: float
+
+
+class GrowthRecommendationResponse(BaseModel):
+    """Growth recommendations container."""
+    base_product: GrowthBaseProduct
+    recommendations: List[GrowthRecommendationItem] = Field(default_factory=list)
+
+
+class PolicyCheckRequest(BaseModel):
+    """Payload sent to backend Policy Engine."""
+    merchant_id: int
+    amount_inr: float
+
+
+class PolicyResult(BaseModel):
+    """Authoritative Policy check result."""
+    allowed: bool
+    reason: str
+    max_transaction_inr: float
+    requested_amount_inr: float
+
+
+class CartItem(BaseModel):
+    """Item in the proposed or finalized cart."""
+    product_id: int
+    product_name: str
+    price_inr: float
+    quantity: int = 1
+    is_upsell: bool = False
+
+
+class AgentResponse(BaseModel):
+    """Standard response model emitted by the Agent."""
+    status: AgentStatus
+    message: str
+    merchant_id: int
+    selected_product: Optional[ProductResult] = None
+    recommendations: List[GrowthRecommendationItem] = Field(default_factory=list)
+    cart: List[CartItem] = Field(default_factory=list)
+    subtotal_inr: float = 0.0
+    total_inr: float = 0.0
+    policy_result: Optional[PolicyResult] = None
+    next_action: Optional[str] = None
+
+
+class AgentChatRequest(BaseModel):
+    """Input payload for agent execution or multi-turn chat."""
+    message: str = Field(..., description="Buyer query or input message")
+    merchant_id: int = Field(default=1, description="Target Merchant ID")
+    buyer_id: Optional[str] = Field(default="demo-ai-buyer", description="Identifier for buyer")
+    buyer_decision: Optional[str] = Field(
+        default=None,
+        description="Explicit approval ('yes'/'approve') or rejection ('no'/'reject') for pending upsells"
+    )
+    context: Optional[Dict[str, Any]] = Field(default=None, description="Optional conversation state context")
