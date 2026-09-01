@@ -2,7 +2,7 @@ import { INITIAL_PRODUCTS } from '../mock-data/products';
 import { INITIAL_GROWTH_OPPORTUNITIES } from '../mock-data/growth';
 import { INITIAL_AUDIT_EVENTS } from '../mock-data/audit';
 import { DEFAULT_POLICY } from '../mock-data/policies';
-import { Product, GrowthOpportunity, MerchantPolicy, OrderItem, Transaction, AuditEvent } from '../types';
+import { Product, GrowthOpportunity, MerchantPolicy, AuditEvent } from '../types';
 
 /**
  * Mock API services.
@@ -61,8 +61,8 @@ export const mockCheckPolicy = async (
 };
 
 export const mockCreateRazorpayOrder = async (
-  totalAmount: number,
-  orderId: string
+  _totalAmount: number,
+  _orderId: string
 ): Promise<{ success: boolean; paymentId: string; apiCalls: number }> => {
   await new Promise((res) => setTimeout(res, 400));
   return {
