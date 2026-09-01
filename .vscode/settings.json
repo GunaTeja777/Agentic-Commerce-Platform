@@ -1,0 +1,18 @@
+{
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agent",
+    "${workspaceFolder}/src",
+    "./backend",
+    "./agent",
+    "./src"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/agent",
+    "${workspaceFolder}/src",
+    "./backend",
+    "./agent",
+    "./src"
+  ]
+}
