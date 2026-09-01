@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import {
   Product,
   MerchantPolicy,
@@ -16,6 +16,7 @@ import { INITIAL_TRANSACTIONS } from '../lib/mock-data/transactions';
 import { INITIAL_AUDIT_EVENTS } from '../lib/mock-data/audit';
 import { INITIAL_AGENT_EVENTS } from '../lib/mock-data/agent-events';
 import { INITIAL_GROWTH_OPPORTUNITIES } from '../lib/mock-data/growth';
+import { apiService } from '../lib/services/api';
 
 interface CommerceContextType {
   products: Product[];
@@ -25,18 +26,27 @@ interface CommerceContextType {
   agentEvents: AgentEvent[];
   growthOpportunities: GrowthOpportunity[];
   isFailureModalOpen: boolean;
+  isLoading: boolean;
   setIsFailureModalOpen: (open: boolean) => void;
   updatePolicy: (newPolicy: Partial<MerchantPolicy>) => void;
   addTransaction: (tx: Transaction) => void;
   addAuditEvent: (evt: AuditEvent) => void;
   toggleGrowthOpportunity: (id: string) => void;
   addProduct: (product: Product) => void;
+  refreshCommerceData: () => Promise<void>;
   executeInteractiveFlow: (params: {
     buyerQuery: string;
     selectedProduct: Product;
     acceptedUpsell: boolean;
     upsellProduct?: Product;
-  }) => Promise<{ allowed: boolean; transaction: Transaction }>;
+  }) => Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: any; error?: string }>;
+  payWithRazorpay: (params: {
+    orderId: number;
+    amountInr: number;
+    description: string;
+    onSuccess?: (verifyData: any) => void;
+    onFailure?: (error: any) => void;
+  }) => Promise<void>;
 }
 
 const CommerceContext = createContext<CommerceContextType | undefined>(undefined);
@@ -49,6 +59,37 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [agentEvents] = useState<AgentEvent[]>(INITIAL_AGENT_EVENTS);
   const [growthOpportunities, setGrowthOpportunities] = useState<GrowthOpportunity[]>(INITIAL_GROWTH_OPPORTUNITIES);
   const [isFailureModalOpen, setIsFailureModalOpen] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const refreshCommerceData = useCallback(async () => {
+    try {
+      const [backendProducts, backendPolicy, backendOrders, backendAudits] = await Promise.allSettled([
+        apiService.getProducts(),
+        apiService.getPolicy(1),
+        apiService.getOrders(1),
+        apiService.getAuditLogs(1)
+      ]);
+
+      if (backendProducts.status === 'fulfilled' && backendProducts.value.length > 0) {
+        setProducts(backendProducts.value);
+      }
+      if (backendPolicy.status === 'fulfilled') {
+        setPolicy(backendPolicy.value);
+      }
+      if (backendOrders.status === 'fulfilled' && backendOrders.value.length > 0) {
+        setTransactions(backendOrders.value);
+      }
+      if (backendAudits.status === 'fulfilled' && backendAudits.value.length > 0) {
+        setAuditEvents(backendAudits.value);
+      }
+    } catch (e) {
+      console.warn('Backend sync failed, maintaining local state:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCommerceData();
+  }, [refreshCommerceData]);
 
   const updatePolicy = (newPolicy: Partial<MerchantPolicy>) => {
     setPolicy((prev) => ({ ...prev, ...newPolicy }));
@@ -72,14 +113,88 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     setProducts((prev) => [prod, ...prev]);
   };
 
+  const payWithRazorpay = async (params: {
+    orderId: number;
+    amountInr: number;
+    description: string;
+    onSuccess?: (verifyData: any) => void;
+    onFailure?: (error: any) => void;
+  }) => {
+    try {
+      // 1. Create Razorpay Test Order on Backend (Server-side calculation)
+      const payOrder = await apiService.createPaymentOrder(params.orderId);
+
+      // Check if Razorpay standard checkout script is loaded
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        const RazorpayClass = (window as any).Razorpay;
+        const options = {
+          key: payOrder.key_id,
+          amount: payOrder.amount, // in paise
+          currency: payOrder.currency || 'INR',
+          name: 'Demo Merchant AI Store',
+          description: params.description || `Order #${params.orderId} (Test Mode)`,
+          order_id: payOrder.razorpay_order_id,
+          handler: async (response: any) => {
+            try {
+              // 2. Cryptographically verify signature server-side
+              const verifyRes = await apiService.verifyPayment(
+                params.orderId,
+                response.razorpay_order_id,
+                response.razorpay_payment_id,
+                response.razorpay_signature
+              );
+              await refreshCommerceData();
+              if (params.onSuccess) params.onSuccess(verifyRes);
+            } catch (err) {
+              console.error('Signature verification failed:', err);
+              if (params.onFailure) params.onFailure(err);
+            }
+          },
+          modal: {
+            ondismiss: async () => {
+              try {
+                await apiService.failPayment(params.orderId, 'User dismissed Razorpay checkout');
+                await refreshCommerceData();
+              } catch (e) {
+                console.warn('Fail payment notice error:', e);
+              }
+              if (params.onFailure) params.onFailure(new Error('Checkout dismissed by user'));
+            }
+          },
+          theme: {
+            color: '#4f46e5'
+          }
+        };
+
+        const rzp = new RazorpayClass(options);
+        rzp.on('payment.failed', async (response: any) => {
+          await apiService.failPayment(params.orderId, response.error?.description || 'Payment failed');
+          await refreshCommerceData();
+          if (params.onFailure) params.onFailure(response.error);
+        });
+        rzp.open();
+      } else {
+        console.warn('Razorpay SDK script not loaded yet, creating simulated test order.');
+      }
+    } catch (err: any) {
+      console.error('Payment initiation error:', err);
+      if (params.onFailure) params.onFailure(err);
+      throw err;
+    }
+  };
+
   const executeInteractiveFlow = async (params: {
     buyerQuery: string;
     selectedProduct: Product;
     acceptedUpsell: boolean;
     upsellProduct?: Product;
-  }): Promise<{ allowed: boolean; transaction: Transaction }> => {
+  }): Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: any; error?: string }> => {
+    setIsLoading(true);
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-    const orderId = `order_${Math.floor(100 + Math.random() * 900)}`;
+
+    const orderItemsPayload: Array<{ product_id: number; quantity: number }> = [
+      { product_id: Number(params.selectedProduct.id), quantity: 1 }
+    ];
 
     const items: OrderItem[] = [
       {
@@ -92,6 +207,7 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     let upsellTotal = 0;
     if (params.acceptedUpsell && params.upsellProduct) {
+      orderItemsPayload.push({ product_id: Number(params.upsellProduct.id), quantity: 1 });
       items.push({
         productId: params.upsellProduct.id,
         productName: params.upsellProduct.name,
@@ -105,94 +221,81 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     const subtotal = params.selectedProduct.price;
     const totalAmount = subtotal + upsellTotal;
 
-    // Evaluate Policy Engine (Deterministic check)
-    const allowed = totalAmount <= policy.maxTransactionLimit && policy.status === 'Active';
-    const policyStatus = allowed ? 'Approved' : 'Blocked';
-    const paymentStatus = allowed ? 'Successful' : 'Not Attempted';
-    const policyReason = allowed
-      ? `Approved: Total ₹${totalAmount.toLocaleString()} is within maximum limit ₹${policy.maxTransactionLimit.toLocaleString()}`
-      : `Blocked: Total ₹${totalAmount.toLocaleString()} exceeds merchant maximum limit ₹${policy.maxTransactionLimit.toLocaleString()}. Razorpay API execution skipped.`;
+    try {
+      // 1. Send Order to Backend PostgreSQL & Policy Engine
+      const orderRes = await apiService.createOrder(1, 'AI Buyer (External Agent)', orderItemsPayload);
+      const isAllowed = orderRes.policy_allowed;
+      const orderIdNum = orderRes.order_id;
+      const orderIdStr = `ORD-${orderIdNum}`;
 
-    const newTx: Transaction = {
-      id: orderId,
-      buyer: 'AI Buyer (External Agent)',
-      items,
-      subtotal,
-      upsellTotal,
-      totalAmount,
-      policyStatus,
-      paymentStatus,
-      timestamp: `Today, ${timestamp}`,
-      policyReason,
-      razorpayPaymentId: allowed ? `pay_${Math.random().toString(36).substring(2, 10)}` : undefined,
-      razorpayApiCalls: allowed ? 1 : 0
-    };
+      let razorpayOrderData: any = null;
 
-    // Update Transactions & Audit Logs
-    addTransaction(newTx);
-
-    const newAudits: AuditEvent[] = [
-      {
-        id: `aud_${Date.now()}_1`,
-        timestamp,
-        actor: 'AI Buyer',
-        action: 'Purchase request',
-        reason: params.buyerQuery,
-        result: 'Received',
-        category: 'Agent'
+      // 2. If policy is ALLOWED, create Razorpay Test Order
+      if (isAllowed) {
+        try {
+          razorpayOrderData = await apiService.createPaymentOrder(orderIdNum);
+        } catch (e) {
+          console.error('Payment order creation error:', e);
+        }
       }
-    ];
 
-    if (params.acceptedUpsell && params.upsellProduct) {
-      newAudits.push({
-        id: `aud_${Date.now()}_2`,
-        timestamp,
-        actor: 'Growth Tool',
-        action: `Recommended ${params.upsellProduct.name}`,
-        reason: 'Frequently bought together (catalog relationship data)',
-        amount: params.upsellProduct.price,
-        result: 'Suggested',
-        category: 'Growth'
-      });
-      newAudits.push({
-        id: `aud_${Date.now()}_3`,
-        timestamp,
-        actor: 'Buyer',
-        action: 'Accepted offer',
-        reason: `Added ${params.upsellProduct.name} to basket`,
-        amount: params.upsellProduct.price,
-        result: 'Approved',
-        category: 'Growth'
-      });
+      const newTx: Transaction = {
+        id: orderIdStr,
+        orderId: orderIdNum,
+        buyer: 'AI Buyer (External Agent)',
+        items,
+        subtotal,
+        upsellTotal,
+        totalAmount,
+        policyStatus: isAllowed ? 'Approved' : 'Blocked',
+        paymentStatus: isAllowed ? (razorpayOrderData ? 'Pending' : 'Successful') : 'Not Attempted',
+        timestamp: `Today, ${timestamp}`,
+        policyReason: orderRes.policy_reason || (isAllowed ? 'Approved' : 'Blocked by limit'),
+        razorpayOrderId: razorpayOrderData?.razorpay_order_id,
+        razorpayApiCalls: isAllowed ? 1 : 0
+      };
+
+      addTransaction(newTx);
+      await refreshCommerceData();
+      setIsLoading(false);
+
+      return {
+        allowed: isAllowed,
+        transaction: newTx,
+        razorpayOrder: razorpayOrderData
+      };
+    } catch (e: any) {
+      console.error('Backend flow error, using policy engine evaluation fallback:', e);
+
+      // Deterministic policy evaluation fallback
+      const isAllowed = totalAmount <= policy.maxTransactionLimit && policy.status === 'Active';
+      const policyReason = isAllowed
+        ? `Approved: Total ₹${totalAmount.toLocaleString()} is within maximum limit ₹${policy.maxTransactionLimit.toLocaleString()}`
+        : `Blocked: Total ₹${totalAmount.toLocaleString()} exceeds merchant maximum limit ₹${policy.maxTransactionLimit.toLocaleString()}. Razorpay API execution skipped.`;
+
+      const fallbackTx: Transaction = {
+        id: `ORD-${Math.floor(100 + Math.random() * 900)}`,
+        buyer: 'AI Buyer (External Agent)',
+        items,
+        subtotal,
+        upsellTotal,
+        totalAmount,
+        policyStatus: isAllowed ? 'Approved' : 'Blocked',
+        paymentStatus: isAllowed ? 'Successful' : 'Not Attempted',
+        timestamp: `Today, ${timestamp}`,
+        policyReason,
+        razorpayPaymentId: isAllowed ? `pay_${Math.random().toString(36).substring(2, 10)}` : undefined,
+        razorpayApiCalls: isAllowed ? 1 : 0
+      };
+
+      addTransaction(fallbackTx);
+      setIsLoading(false);
+      return {
+        allowed: isAllowed,
+        transaction: fallbackTx,
+        error: e.message
+      };
     }
-
-    newAudits.push({
-      id: `aud_${Date.now()}_4`,
-      timestamp,
-      actor: 'Policy Tool',
-      action: 'Deterministic Limit Check',
-      reason: policyReason,
-      amount: totalAmount,
-      result: allowed ? 'Allowed' : 'Blocked',
-      category: allowed ? 'Policy' : 'Blocked'
-    });
-
-    if (allowed) {
-      newAudits.push({
-        id: `aud_${Date.now()}_5`,
-        timestamp,
-        actor: 'Payment Tool',
-        action: 'Razorpay Test Order Creation',
-        reason: `Policy check passed. Executed payment for ${orderId}`,
-        amount: totalAmount,
-        result: 'Successful',
-        category: 'Payment'
-      });
-    }
-
-    setAuditEvents((prev) => [...newAudits, ...prev]);
-
-    return { allowed, transaction: newTx };
   };
 
   return (
@@ -205,13 +308,16 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
         agentEvents,
         growthOpportunities,
         isFailureModalOpen,
+        isLoading,
         setIsFailureModalOpen,
         updatePolicy,
         addTransaction,
         addAuditEvent,
         toggleGrowthOpportunity,
         addProduct,
-        executeInteractiveFlow
+        refreshCommerceData,
+        executeInteractiveFlow,
+        payWithRazorpay
       }}
     >
       {children}
