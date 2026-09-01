@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
-import { History, Filter, ShieldCheck, Cpu, CreditCard, Sparkles, AlertTriangle } from 'lucide-react';
+import { Filter } from 'lucide-react';
 
 export default function AuditTrailPage() {
   const { auditEvents } = useCommerce();
