@@ -4,15 +4,10 @@ import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import { Transaction } from '@/lib/types';
 import {
-  CreditCard,
   CheckCircle2,
   XCircle,
-  Clock,
   Eye,
-  X,
-  FileText,
-  ShieldCheck,
-  Zap
+  X
 } from 'lucide-react';
 
 export default function TransactionsPage() {

@@ -4,14 +4,11 @@ import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import {
   ShieldAlert,
-  ShieldCheck,
   Lock,
   CheckCircle2,
   XCircle,
   ArrowRight,
-  Sliders,
-  AlertTriangle,
-  Info
+  Sliders
 } from 'lucide-react';
 
 export default function PolicyPage() {
@@ -98,7 +95,7 @@ export default function PolicyPage() {
             <label className="block text-slate-600 font-semibold mb-1">Merchant Status</label>
             <select
               value={policy.status}
-              onChange={(e) => updatePolicy({ status: e.target.value as any })}
+              onChange={(e) => updatePolicy({ status: e.target.value as 'Active' | 'Paused' })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg font-medium text-slate-900 focus:outline-none"
             >
               <option value="Active">Active</option>

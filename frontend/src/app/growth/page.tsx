@@ -3,15 +3,10 @@
 import React from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import {
-  TrendingUp,
-  Sparkles,
   ArrowRight,
   Database,
-  CheckCircle2,
-  AlertCircle,
   ToggleLeft,
-  ToggleRight,
-  Info
+  ToggleRight
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -174,7 +169,7 @@ export default function GrowthPage() {
                 tickFormatter={(v) => `₹${v / 1000}k`}
               />
               <Tooltip
-                formatter={(val: any) => [`₹${Number(val).toLocaleString()}`, '']}
+                formatter={(val: unknown) => [`₹${Number(val).toLocaleString()}`, '']}
                 contentStyle={{ backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px' }}
               />
               <Legend wrapperStyle={{ fontSize: '12px' }} />

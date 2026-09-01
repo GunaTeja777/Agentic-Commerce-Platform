@@ -4,15 +4,12 @@ import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import { Product } from '@/lib/types';
 import {
-  Package,
   Search,
   Filter,
   Plus,
   Code,
   X,
-  CheckCircle2,
-  AlertCircle,
-  Eye
+  CheckCircle2
 } from 'lucide-react';
 
 export default function CatalogPage() {
