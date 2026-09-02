@@ -47,7 +47,7 @@ def get_llm_instance():
     try:
         if provider in ["gemini", "google"]:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            model_name = settings.LLM_MODEL if "gemini" in settings.LLM_MODEL else "gemini-1.5-flash"
+            model_name = settings.LLM_MODEL if "gemini" in settings.LLM_MODEL else "gemini-2.5-flash"
             return ChatGoogleGenerativeAI(
                 model=model_name,
                 google_api_key=api_key,

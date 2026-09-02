@@ -14,7 +14,7 @@ class AgentSettings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gemini-1.5-flash"
+    LLM_MODEL: str = "gemini-2.5-flash"
     LLM_TEMPERATURE: float = 0.1
 
     # Curation Settings (Prompt curation with Hugging Face)
