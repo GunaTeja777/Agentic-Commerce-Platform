@@ -203,7 +203,7 @@ export default function LiveDemoPage() {
     setTimelineSteps([]);
   };
 
-  // Run the primary demo flow dynamically based on user prompt
+  // Run the primary demo flow dynamically based on user prompt & LangGraph Agent API
   const handleStartDemo = async (customPrompt?: string) => {
     const query = customPrompt || buyerInput;
     handleResetDemo(true);
@@ -239,16 +239,94 @@ export default function LiveDemoPage() {
     setAgentState('searching_catalog');
     setTimelineSteps([
       { id: 't1', label: 'Request received', detail: `Parsed intent: ${parsed.categoryLabel} for ${parsed.useCase}, budget ₹${formatINR(parsed.budget)}`, status: 'done' },
-      { id: 't2', label: 'Catalog Tool', detail: `Searching ${parsed.categoryLabel.toLowerCase()} under ₹${formatINR(parsed.budget)}`, status: 'active' }
+      { id: 't2', label: 'LangGraph Orchestrator', detail: `Querying Catalog Tool for ${parsed.categoryLabel.toLowerCase()} under ₹${formatINR(parsed.budget)}`, status: 'active' }
     ]);
 
-    await new Promise(r => setTimeout(r, 600));
+    try {
+      // 2. Real API call to LangGraph Agent
+      const agentRes = await apiService.chatAgent({
+        message: query,
+        merchant_id: 1,
+        buyer_id: 'demo-ai-buyer'
+      });
 
-    // 2. Select matching product from catalog
-    let matchedItem = laptopItem;
-    if (parsed.category === 'monitor') {
-      matchedItem = monitorItem;
-    } else {
+      if (agentRes.selected_product) {
+        const prod: Product = {
+          id: String(agentRes.selected_product.product_id),
+          name: agentRes.selected_product.product_name,
+          category: agentRes.selected_product.category || parsed.categoryLabel,
+          price: agentRes.selected_product.price_inr,
+          stock: agentRes.selected_product.stock_quantity || 15,
+          description: agentRes.selected_product.description || '',
+          compatibleProducts: agentRes.selected_product.tags || [],
+          frequentlyBoughtWith: [],
+          agentReadableStatus: 'Available',
+          specifications: {}
+        };
+        setSelectedProduct(prod);
+
+        // 3. Growth recommendation from LangGraph Growth Tool
+        if (agentRes.recommendations && agentRes.recommendations.length > 0) {
+          const rec = agentRes.recommendations[0];
+          setRecommendation({
+            id: String(rec.id),
+            name: rec.name,
+            price: rec.price_inr,
+            reason: rec.reason,
+            source: 'Merchant catalog relationship',
+            stock: rec.stock
+          });
+
+          setAgentState('awaiting_buyer_approval');
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+            { id: 't4', label: 'Growth Tool', detail: 'Found data-backed upsell opportunity', status: 'done' },
+            { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${rec.name} (+₹${formatINR(rec.price_inr)})`, status: 'active' }
+          ]);
+        } else {
+          setAgentState('building_basket');
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' }
+          ]);
+        }
+
+        setBasketItems([{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }]);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (LangGraph)',
+            content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      } else {
+        // No product matched or blocked by search constraints
+        setAgentState(agentRes.status === 'blocked' ? 'policy_blocked' : 'failed');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Catalog search result', detail: agentRes.message || 'No products found within budget', status: 'blocked' }
+        ]);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (LangGraph)',
+            content: agentRes.message || `No product found matching your requirements.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      }
+    } catch (e: unknown) {
+      console.warn('Agent API unreachable, using robust fallback workflow:', e);
+      // Fallback matching in case agent server is restarting
+      let matchedItem = laptopItem;
       const found = products.find(p => 
         (p.category.toLowerCase().includes(parsed.category) || p.name.toLowerCase().includes(parsed.category)) &&
         p.price <= parsed.budget
@@ -256,57 +334,53 @@ export default function LiveDemoPage() {
         p.category.toLowerCase().includes(parsed.category) || p.name.toLowerCase().includes(parsed.category)
       );
       if (found) matchedItem = found;
+
+      setSelectedProduct(matchedItem);
+      setAgentState('product_selected');
+      setTimelineSteps(prev => [
+        ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+        { id: 't3', label: 'Product selected', detail: `${matchedItem.name} — ₹${formatINR(matchedItem.price)}`, status: 'done' },
+        { id: 't4', label: 'Growth Tool', detail: 'Checking data-backed merchant relationships', status: 'active' }
+      ]);
+
+      const recItem = mouseItem;
+      setRecommendation({
+        id: recItem.id,
+        name: recItem.name,
+        price: recItem.price,
+        reason: `Frequently bought with ${matchedItem.name}`,
+        source: 'Merchant catalog relationship',
+        stock: recItem.stock
+      });
+
+      setAgentState('awaiting_buyer_approval');
+      setTimelineSteps(prev => [
+        ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
+        { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recItem.name} (+₹${formatINR(recItem.price)})`, status: 'active' }
+      ]);
+
+      setBasketItems([{ name: matchedItem.name, price: matchedItem.price, isUpsell: false, id: matchedItem.id }]);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          id: 'msg-2',
+          sender: 'merchant',
+          senderLabel: 'Merchant AI Agent',
+          content: `I found the ${matchedItem.name} for ₹${formatINR(matchedItem.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matchedItem.stock} available.`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        },
+        {
+          id: 'msg-3',
+          sender: 'merchant',
+          senderLabel: 'Merchant AI Agent',
+          content: `A compatible ${recItem.name} is frequently bought with this product and is available for ₹${formatINR(recItem.price)}. Would you like to add it?`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }
+      ]);
+    } finally {
+      setIsProcessing(false);
     }
-
-    setSelectedProduct(matchedItem);
-    setAgentState('product_selected');
-    setTimelineSteps(prev => [
-      ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-      { id: 't3', label: 'Product selected', detail: `${matchedItem.name} — ₹${formatINR(matchedItem.price)}`, status: 'done' },
-      { id: 't4', label: 'Growth Tool', detail: 'Checking data-backed merchant relationships', status: 'active' }
-    ]);
-
-    await new Promise(r => setTimeout(r, 600));
-
-    // 3. Growth recommendation
-    const recItem = matchedItem.id === monitorItem.id ? mouseItem : mouseItem;
-    setRecommendation({
-      id: recItem.id,
-      name: recItem.name,
-      price: recItem.price,
-      reason: `Frequently bought with ${matchedItem.name}`,
-      source: 'Merchant catalog relationship',
-      stock: recItem.stock
-    });
-
-    setAgentState('awaiting_buyer_approval');
-    setTimelineSteps(prev => [
-      ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
-      { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recItem.name} (+₹${formatINR(recItem.price)})`, status: 'active' }
-    ]);
-
-    // Initial base basket
-    setBasketItems([{ name: matchedItem.name, price: matchedItem.price, isUpsell: false, id: matchedItem.id }]);
-
-    setMessages(prev => [
-      ...prev,
-      {
-        id: 'msg-2',
-        sender: 'merchant',
-        senderLabel: 'Merchant AI Agent',
-        content: `I found the ${matchedItem.name} for ₹${formatINR(matchedItem.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matchedItem.stock} available.`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      },
-      {
-        id: 'msg-3',
-        sender: 'merchant',
-        senderLabel: 'Merchant AI Agent',
-        content: `A compatible ${recItem.name} is frequently bought with this product and is available for ₹${formatINR(recItem.price)}. Would you like to add it?`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-      }
-    ]);
-
-    setIsProcessing(false);
   };
 
   // Buyer Decision Action (Accept / Skip Recommendation)

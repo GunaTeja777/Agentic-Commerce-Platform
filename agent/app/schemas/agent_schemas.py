@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import List, Optional, Any, Dict
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
 class AgentStatus(str, Enum):
@@ -27,6 +27,15 @@ class ProductResult(BaseModel):
     image_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator('tags', mode='before')
+    @classmethod
+    def parse_tags(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            return [t.strip() for t in v.split(',') if t.strip()]
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return []
 
 
 class ProductCatalogResponse(BaseModel):

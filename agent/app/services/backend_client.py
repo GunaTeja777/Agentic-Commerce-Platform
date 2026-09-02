@@ -77,7 +77,7 @@ class BackendClient:
                             stock_quantity=int(item.get("stock_quantity", 0)),
                             rating=float(item.get("rating", 0.0)) if item.get("rating") is not None else 0.0,
                             description=item.get("description"),
-                            tags=item.get("tags") or [],
+                            tags=item.get("tags"),
                             image_url=item.get("image_url")
                         )
                     )
