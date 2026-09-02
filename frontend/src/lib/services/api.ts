@@ -182,7 +182,7 @@ export const apiService = {
           category: item.category || 'Electronics',
           price: Number(item.price_inr || item.price || 0),
           stock: Number(item.stock_quantity || item.stock || 0),
-          compatibleProducts: item.tags || [],
+          compatibleProducts: Array.isArray(item.tags) ? item.tags : [],
           frequentlyBoughtWith: [],
           agentReadableStatus: ((item.stock_quantity || item.stock || 0) > 10) ? 'Available' : ((item.stock_quantity || item.stock || 0) > 0) ? 'Low Stock' : 'Out of Stock',
           description: item.description || '',

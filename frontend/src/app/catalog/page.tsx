@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import { Product } from '@/lib/types';
+import { formatINR } from '@/lib/format';
 import {
   Search,
   Filter,
@@ -140,8 +141,8 @@ export default function CatalogPage() {
                       {product.category}
                     </span>
                   </td>
-                  <td className="px-6 py-4 font-mono font-bold text-slate-900">
-                    ₹{product.price.toLocaleString()}
+                  <td className="px-6 py-4 font-mono font-bold text-slate-900" suppressHydrationWarning>
+                    ₹{formatINR(product.price)}
                   </td>
                   <td className="px-6 py-4 font-mono">
                     <span className={product.stock > 10 ? 'text-slate-800' : 'text-amber-600 font-bold'}>
@@ -150,7 +151,7 @@ export default function CatalogPage() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
-                      {product.compatibleProducts.map((cp, idx) => (
+                      {(Array.isArray(product.compatibleProducts) ? product.compatibleProducts : []).map((cp, idx) => (
                         <span
                           key={idx}
                           className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-mono"
@@ -158,11 +159,14 @@ export default function CatalogPage() {
                           {cp}
                         </span>
                       ))}
+                      {(!product.compatibleProducts || product.compatibleProducts.length === 0) && (
+                        <span className="text-slate-400 text-[10px] italic">Universal</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
-                      {product.frequentlyBoughtWith.map((fb, idx) => (
+                      {(Array.isArray(product.frequentlyBoughtWith) ? product.frequentlyBoughtWith : []).map((fb, idx) => (
                         <span
                           key={idx}
                           className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-mono"
@@ -170,6 +174,9 @@ export default function CatalogPage() {
                           {fb}
                         </span>
                       ))}
+                      {(!product.frequentlyBoughtWith || product.frequentlyBoughtWith.length === 0) && (
+                        <span className="text-slate-400 text-[10px] italic">Growth indexed</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4">
