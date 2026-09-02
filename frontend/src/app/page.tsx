@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useCommerce } from '@/context/CommerceContext';
+import { formatINR } from '@/lib/format';
 import {
   TrendingUp,
   DollarSign,
@@ -77,8 +78,10 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹{displayTotalRevenue.toLocaleString()}</div>
-            <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
+            <div className="text-2xl font-bold text-slate-900" suppressHydrationWarning>
+              ₹{formatINR(displayTotalRevenue)}
+            </div>
+            <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1" suppressHydrationWarning>
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>{totalOrdersCount > 0 ? `${totalOrdersCount} test orders recorded` : '+18.4% from last week'}</span>
             </div>
@@ -94,7 +97,9 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹{displayAiRevenue.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-slate-900" suppressHydrationWarning>
+              ₹{formatINR(displayAiRevenue)}
+            </div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>Test Mode Growth Attribution</span>
@@ -111,7 +116,9 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹{displayUpsellRevenue.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-slate-900" suppressHydrationWarning>
+              ₹{formatINR(displayUpsellRevenue)}
+            </div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>+₹1,500 avg per cross-sell</span>
@@ -128,7 +135,9 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹{displayAvgOrderValue.toLocaleString()}</div>
+            <div className="text-2xl font-bold text-slate-900" suppressHydrationWarning>
+              ₹{formatINR(displayAvgOrderValue)}
+            </div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-purple-600 mt-1">
               <span>Test Mode Average Size</span>
             </div>
@@ -239,11 +248,11 @@ export default function OverviewPage() {
           <div className="space-y-3 divide-y divide-slate-100 text-xs">
             <div className="pt-2 flex justify-between items-center">
               <span className="text-slate-500">Maximum transaction:</span>
-              <span className="font-mono font-bold text-slate-900">₹{policy.maxTransactionLimit.toLocaleString()}</span>
+              <span className="font-mono font-bold text-slate-900" suppressHydrationWarning>₹{formatINR(policy.maxTransactionLimit)}</span>
             </div>
             <div className="pt-3 flex justify-between items-center">
               <span className="text-slate-500">Approval required above:</span>
-              <span className="font-mono font-bold text-slate-900">₹{policy.approvalThreshold.toLocaleString()}</span>
+              <span className="font-mono font-bold text-slate-900" suppressHydrationWarning>₹{formatINR(policy.approvalThreshold)}</span>
             </div>
             <div className="pt-3 flex justify-between items-center">
               <span className="text-slate-500">Merchant status:</span>

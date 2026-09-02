@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useCommerce } from '@/context/CommerceContext';
+import { formatINR } from '@/lib/format';
 import {
   ArrowRight,
   Database,
@@ -66,7 +67,7 @@ export default function GrowthPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <span className="text-xs font-semibold text-slate-500">AI-assisted revenue</span>
-          <div className="text-2xl font-bold text-slate-900">₹{displayAiRevenue.toLocaleString()}</div>
+          <div className="text-2xl font-bold text-slate-900" suppressHydrationWarning>₹{formatINR(displayAiRevenue)}</div>
           <p className="text-[11px] text-emerald-600 font-medium">Generated via agent growth tool</p>
         </div>
 
