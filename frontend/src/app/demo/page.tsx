@@ -175,7 +175,11 @@ export default function LiveDemoPage() {
     category: 'Laptops',
     price: 65000,
     stock: 50,
-    description: 'Flagship 14-inch professional laptop'
+    description: 'Flagship 14-inch professional laptop',
+    agentReadableStatus: 'Available' as const,
+    compatibleProducts: ['1021', '1022'],
+    frequentlyBoughtWith: ['1021'],
+    specifications: { rating: '4.7', battery: '14 Hours' }
   };
 
   const mouseItem: Product = products.find(p => p.name.includes('Mouse')) || {
@@ -184,7 +188,11 @@ export default function LiveDemoPage() {
     category: 'Accessories',
     price: 1500,
     stock: 49,
-    description: 'Precision wireless ergonomic mouse'
+    description: 'Precision wireless ergonomic mouse',
+    agentReadableStatus: 'Available' as const,
+    compatibleProducts: [],
+    frequentlyBoughtWith: [],
+    specifications: {}
   };
 
   const monitorItem: Product = products.find(p => p.category === 'Monitors') || {
@@ -193,7 +201,11 @@ export default function LiveDemoPage() {
     category: 'Monitors',
     price: 12000,
     stock: 20,
-    description: '27-inch 4K UHD designer monitor'
+    description: '27-inch 4K UHD designer monitor',
+    agentReadableStatus: 'Available' as const,
+    compatibleProducts: [],
+    frequentlyBoughtWith: [],
+    specifications: {}
   };
 
   // Reset Demo State
