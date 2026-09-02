@@ -203,28 +203,64 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
 
 async def catalog_search_node(state: AgentState) -> Dict[str, Any]:
     """
-    Call the Catalog Search tool to locate matching products in the merchant inventory.
+    Formulate optimized search parameters via Gemini and query the backend catalog tool.
     """
     search_query = state.get("search_query")
     max_price = state.get("buyer_budget")
     merchant_id = state.get("merchant_id", settings.DEFAULT_MERCHANT_ID)
+    buyer_request = state.get("buyer_request", "")
+    structured_req = state.get("structured_request") or {}
 
-    logger.info(f"[Node: CatalogSearch] Query='{search_query}', max_price={max_price}, merchant_id={merchant_id}")
+    # If Gemini is available, formulate optimized query terms
+    llm = get_llm_instance()
+    search_keywords = [search_query] if search_query else []
+    
+    if llm and buyer_request and not search_keywords:
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage
+            prompt = (
+                f"Extract the most relevant 1-2 search terms for finding a product in a merchant catalog database.\n"
+                f"Buyer Request: '{buyer_request}'\n"
+                f"Category: {structured_req.get('category')}\n"
+                f"Output ONLY a raw comma-separated list of 1-2 keywords, e.g.: laptop, ultrabook"
+            )
+            resp = await llm.ainvoke([
+                SystemMessage(content="You are a search query formulation expert. Return only comma-separated terms."),
+                HumanMessage(content=prompt)
+            ])
+            terms = [t.strip().strip('"').strip("'") for t in str(resp.content).split(",") if t.strip()]
+            if terms:
+                search_keywords = terms
+        except Exception as e:
+            logger.warning(f"Gemini search term formulation fallback: {e}")
+
+    final_search = " ".join(search_keywords) if search_keywords else search_query
+
+    logger.info(f"[Node: CatalogSearch] Query='{final_search}', max_price={max_price}, merchant_id={merchant_id}")
 
     result = await execute_catalog_search(
-        search_query=search_query,
+        search_query=final_search,
         max_price=max_price,
         merchant_id=merchant_id
     )
 
     products = result.get("products", [])
+    if not products and search_keywords and len(search_keywords) > 1:
+        first_term = search_keywords[0]
+        result = await execute_catalog_search(
+            search_query=first_term,
+            max_price=max_price,
+            merchant_id=merchant_id
+        )
+        products = result.get("products", [])
+
     if not products:
         logger.warning("[Node: CatalogSearch] No matching products found in catalog.")
         return {
             "candidate_products": [],
             "status": AgentStatus.BLOCKED.value,
             "current_step": "catalog_search_empty",
-            "final_message": f"I couldn't find any product matching '{search_query}' within your requirements."
+            "final_message": f"I couldn't find any product matching '{final_search or search_query}' within your requirements."
         }
 
     return {
@@ -235,7 +271,7 @@ async def catalog_search_node(state: AgentState) -> Dict[str, Any]:
 
 async def select_product_node(state: AgentState) -> Dict[str, Any]:
     """
-    Select the optimal product candidate within buyer requirements.
+    Select the optimal product candidate within buyer requirements using Gemini evaluation.
     """
     candidates = state.get("candidate_products", [])
     if not candidates:
@@ -246,8 +282,36 @@ async def select_product_node(state: AgentState) -> Dict[str, Any]:
             "final_message": "No product available to select."
         }
 
-    # Select the first matching in-stock product
+    buyer_request = state.get("buyer_request", "")
+    llm = get_llm_instance()
+
     selected = candidates[0]
+    if len(candidates) > 1 and llm and buyer_request:
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage
+            summary_list = [
+                f"ID {c.get('product_id')}: {c.get('product_name')} - Price: ₹{c.get('price_inr')}, Rating: {c.get('rating', 4.5)}, Description: {c.get('description', '')}"
+                for c in candidates[:5]
+            ]
+            prompt = (
+                f"Select the best product matching the buyer's request.\n"
+                f"Buyer Request: '{buyer_request}'\n\n"
+                f"Available Products:\n" + "\n".join(summary_list) + "\n\n"
+                f"Return ONLY a JSON object: {{\"selected_product_id\": <number>}}"
+            )
+            resp = await llm.ainvoke([
+                SystemMessage(content="You are a product matching expert. Return only JSON with selected_product_id."),
+                HumanMessage(content=prompt)
+            ])
+            match = re.search(r'\{\s*"selected_product_id"\s*:\s*(\d+)\s*\}', str(resp.content))
+            if match:
+                chosen_id = int(match.group(1))
+                found = next((c for c in candidates if c.get("product_id") == chosen_id), None)
+                if found:
+                    selected = found
+        except Exception as e:
+            logger.warning(f"Gemini product selection fallback: {e}")
+
     logger.info(f"[Node: SelectProduct] Selected '{selected.get('product_name')}' (₹{selected.get('price_inr')})")
 
     return {
