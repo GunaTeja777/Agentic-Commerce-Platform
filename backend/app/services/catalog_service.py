@@ -25,15 +25,19 @@ class CatalogService:
         if category:
             query = query.where(func.lower(Product.category) == category.lower())
         if search:
-            search_pattern = f"%{search.lower()}%"
-            query = query.where(
-                or_(
-                    func.lower(Product.product_name).like(search_pattern),
-                    func.lower(Product.description).like(search_pattern),
-                    func.lower(Product.category).like(search_pattern),
-                    func.lower(Product.tags).like(search_pattern),
-                )
-            )
+            search_terms = [t.strip().lower() for t in search.split() if len(t.strip()) > 1]
+            if not search_terms:
+                search_terms = [search.lower()]
+            search_clauses = []
+            for term in search_terms:
+                term_pattern = f"%{term}%"
+                search_clauses.extend([
+                    func.lower(Product.product_name).like(term_pattern),
+                    func.lower(Product.description).like(term_pattern),
+                    func.lower(Product.category).like(term_pattern),
+                    func.lower(Product.tags).like(term_pattern),
+                ])
+            query = query.where(or_(*search_clauses))
         if min_price is not None:
             query = query.where(Product.price_inr >= min_price)
         if max_price is not None:
