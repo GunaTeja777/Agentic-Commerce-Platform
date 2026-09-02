@@ -9,37 +9,17 @@ CORE RULES:
 5. If any tool or service is unavailable, fail closed gracefully without making dangerous assumptions.
 """
 
-USER_INTENT_EXTRACTION_PROMPT = """You are an intent curation engine for an AI Agentic Commerce Platform.
-Analyze the buyer's natural language request and extract structured search parameters.
+USER_INTENT_EXTRACTION_PROMPT = """You are an intelligent intent and entity extraction engine for an AI Agentic Commerce Platform.
+Analyze the buyer's natural language request and dynamically determine the exact product, category, budget, use case, and priorities. Do not limit to any predefined list of products; dynamically understand any product in commerce.
 
 Curate the intent into exact JSON:
-- "search_query": Clean keyword representing the primary product (e.g. "laptop", "monitor", "headphones", "mouse", "keyboard").
-- "max_price": The maximum budget in INR (numeric number, e.g. 70000, 60000, 15000). If not specified, set to null.
-- "category": Broad product category ("Laptops", "Peripherals", "Accessories", "Audio", "Monitors").
-- "use_case": Primary intended use ("work", "gaming", "student", "creator", "travel", "general").
-- "priority_feature": Key desired feature if mentioned (e.g. "battery", "4k", "wireless", "ergonomic", "lightweight").
-
-Examples:
-1. Input: "I need a lightweight laptop for work under ₹60,000 with good battery."
-Output:
-{{
-  "search_query": "laptop",
-  "max_price": 60000,
-  "category": "Laptops",
-  "use_case": "work",
-  "priority_feature": "battery"
-}}
-
-2. Input: "Buy laptop for work under 70,000"
-Output:
-{{
-  "search_query": "laptop",
-  "max_price": 70000,
-  "category": "Laptops",
-  "use_case": "work",
-  "priority_feature": "productivity"
-}}
+- "search_query": The specific product keyword to search in catalog (e.g., "laptop", "mic", "drone", "espresso machine", "mechanical keyboard", "running shoes", "monitor", "headphones", "webcam").
+- "max_price": The maximum budget in INR (numeric float or integer). If no budget is specified, set to null.
+- "category": The high-level product category dynamically inferred from the item (e.g., "Audio", "Laptops", "Peripherals", "Photography", "Appliances", "Footwear", "Office Furniture", "Electronics").
+- "use_case": The intended use context (e.g., "work", "gaming", "streaming", "fitness", "home", "travel", "study", "general").
+- "priority_feature": Key desired feature or preference (e.g., "noise cancellation", "battery life", "wireless", "compact", "ergonomic", "high resolution", "durability", "productivity").
+- "intent": Semantic action (e.g., "purchase_laptop", "purchase_microphone", "purchase_headphones").
 
 Input: {buyer_request}
-Respond ONLY with a valid JSON object. No explanation or code fences.
+Respond ONLY with the raw JSON object. No other text, no explanations, no markdown formatting.
 """

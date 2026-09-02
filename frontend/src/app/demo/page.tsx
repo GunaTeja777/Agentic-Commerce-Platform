@@ -168,6 +168,32 @@ export default function LiveDemoPage() {
   const effectiveUseCase = structuredRequest?.preferences?.use_case || liveParsed.useCase;
   const effectivePriority = structuredRequest?.preferences?.priority || liveParsed.priority;
 
+  // Dynamic LLM query curation whenever prompt changes (debounced 400ms)
+  React.useEffect(() => {
+    if (!buyerInput.trim()) return;
+    const timer = setTimeout(async () => {
+      try {
+        const curated = await apiService.curatePrompt(buyerInput, 'demo-ai-buyer');
+        if (curated && curated.structured_request) {
+          setStructuredRequest({
+            buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
+            intent: curated.structured_request.intent || `purchase_${curated.search_query}`,
+            category: curated.search_query || curated.category,
+            budget_inr: Number(curated.budget_inr) || liveParsed.budget,
+            preferences: {
+              use_case: curated.use_case || liveParsed.useCase,
+              priority: curated.priority_feature || liveParsed.priority
+            }
+          });
+        }
+      } catch (e) {
+        // Fallback silently to live parsed local values
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [buyerInput]);
+
   // Initialize products fallback
   const laptopItem: Product = products.find(p => p.category === 'Laptops') || {
     id: '1001',
