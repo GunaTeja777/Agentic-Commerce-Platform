@@ -34,6 +34,24 @@ def get_llm_instance():
                 google_api_key=api_key,
                 temperature=settings.LLM_TEMPERATURE
             )
+        elif provider in ["huggingface", "hf"]:
+            from langchain_openai import ChatOpenAI
+            model_name = settings.LLM_MODEL if settings.LLM_MODEL and "gemini" not in settings.LLM_MODEL else "meta-llama/Llama-3.2-3B-Instruct"
+            return ChatOpenAI(
+                base_url="https://api-inference.huggingface.co/v1",
+                api_key=api_key,
+                model=model_name,
+                temperature=settings.LLM_TEMPERATURE
+            )
+        elif provider == "groq":
+            from langchain_openai import ChatOpenAI
+            model_name = settings.LLM_MODEL if settings.LLM_MODEL and "gemini" not in settings.LLM_MODEL else "llama-3.1-8b-instant"
+            return ChatOpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=api_key,
+                model=model_name,
+                temperature=settings.LLM_TEMPERATURE
+            )
         elif provider == "openai":
             from langchain_openai import ChatOpenAI
             model_name = settings.LLM_MODEL if "gpt" in settings.LLM_MODEL else "gpt-4o-mini"
@@ -49,7 +67,7 @@ def get_llm_instance():
 
 def parse_intent_fallback(text: str) -> Dict[str, Any]:
     """
-    Robust rule-based parser for budget and product keywords
+    Robust rule-based parser for budget, product keywords, use case, and priorities
     when LLM is not configured or in unit test mode.
     """
     text_lower = text.lower()
@@ -74,11 +92,17 @@ def parse_intent_fallback(text: str) -> Dict[str, Any]:
             except ValueError:
                 pass
 
-    # Extract keywords (laptop, mouse, keyboard, monitor, headphone, audio, bag, accessory, electronics)
-    categories = ["laptop", "mouse", "keyboard", "monitor", "headphone", "audio", "bag", "accessory", "electronics"]
+    # Extract keywords (mic, microphone, laptop, mouse, keyboard, monitor, headphone, audio, bag, accessory, electronics, speaker, camera, chair)
+    categories = [
+        "microphone", "mic", "headphone", "earphone", "headset", "audio",
+        "laptop", "macbook", "notebook", "computer", "pc",
+        "mouse", "keyboard", "trackpad",
+        "monitor", "display", "screen",
+        "speaker", "webcam", "camera", "bag", "backpack", "desk", "chair"
+    ]
     found_keyword = None
     for cat in categories:
-        if cat in text_lower:
+        if re.search(r'\b' + re.escape(cat) + r'\b', text_lower):
             found_keyword = cat
             break
             
@@ -86,18 +110,97 @@ def parse_intent_fallback(text: str) -> Dict[str, Any]:
         # Strip common stopwords
         words = [w for w in re.findall(r'\b[a-zA-Z0-9_-]+\b', text_lower) 
                  if w not in ["i", "need", "a", "an", "the", "for", "under", "below", "with", "want", "to", "buy", "find", "get", "in", "rs", "inr", "rupees"]]
-        found_keyword = words[0] if words else text
+        found_keyword = words[0] if words else "product"
+
+    # Normalize category
+    if found_keyword in ["mic", "microphone", "headphone", "earphone", "headset", "audio", "speaker"]:
+        broad_category = "Audio"
+    elif found_keyword in ["laptop", "macbook", "notebook", "computer", "pc"]:
+        broad_category = "Laptops"
+    elif found_keyword in ["mouse", "keyboard", "trackpad"]:
+        broad_category = "Peripherals"
+    elif found_keyword in ["monitor", "display", "screen"]:
+        broad_category = "Monitors"
+    else:
+        broad_category = "Accessories"
+
+    # Extract use case
+    use_cases = ["gaming", "work", "office", "student", "college", "travel", "creator", "coding", "streaming"]
+    use_case = "work"
+    for uc in use_cases:
+        if uc in text_lower:
+            use_case = uc
+            break
+
+    # Extract priority feature
+    priorities = ["battery", "wireless", "bluetooth", "noise cancellation", "anc", "lightweight", "portable", "clarity", "4k", "rgb", "ergonomic"]
+    priority = "productivity"
+    for p in priorities:
+        if p in text_lower:
+            priority = p
+            break
 
     return {
         "search_query": found_keyword,
-        "max_price": budget
+        "max_price": budget,
+        "category": broad_category,
+        "use_case": use_case,
+        "priority_feature": priority,
+        "intent": f"purchase_{found_keyword}"
     }
+
+
+async def curate_user_intent_with_llm(buyer_request: str) -> Dict[str, Any]:
+    """
+    Curate the buyer's query using configured LLM (Hugging Face / Gemini / etc.)
+    with automatic JSON parsing and robust fallback.
+    """
+    llm = get_llm_instance()
+    if llm:
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage
+            from app.prompts.agent_prompt import USER_INTENT_EXTRACTION_PROMPT
+
+            prompt = USER_INTENT_EXTRACTION_PROMPT.format(buyer_request=buyer_request)
+            response = await llm.ainvoke([
+                SystemMessage(content="You are an intent curation engine. Return only valid JSON."),
+                HumanMessage(content=prompt)
+            ])
+            content = str(response.content).strip()
+            json_match = re.search(r'(\{.*\})', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+            elif content.startswith("```json"):
+                content = content[7:].rstrip("`").strip()
+            elif content.startswith("```"):
+                content = content[3:].rstrip("`").strip()
+            
+            parsed = json.loads(content.strip())
+            
+            sq = parsed.get("search_query") or "product"
+            mp = parsed.get("max_price")
+            cat = parsed.get("category") or "General"
+            uc = parsed.get("use_case") or "work"
+            pf = parsed.get("priority_feature") or "standard"
+
+            return {
+                "search_query": sq,
+                "max_price": float(mp) if mp is not None else None,
+                "category": cat,
+                "use_case": uc,
+                "priority_feature": pf,
+                "intent": f"purchase_{sq}"
+            }
+        except Exception as e:
+            logger.warning(f"LLM curation error ({e}), falling back to regex parser.")
+    
+    return parse_intent_fallback(buyer_request)
 
 
 async def understand_request_node(state: AgentState) -> Dict[str, Any]:
     """
     Parse buyer's intent, keywords, and budget constraints from request.
-    Uses configured Gemini/OpenAI LLM, or fallback parser if API key is not supplied.
+    Uses configured LLM curation, or fallback parser if API key is not supplied.
     """
     buyer_request = state.get("buyer_request", "")
     logger.info(f"[Node: UnderstandRequest] Parsing: '{buyer_request}'")
@@ -111,43 +214,16 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
         buyer_budget = buyer_budget if buyer_budget is not None else structured_req.get("budget_inr")
 
     if not search_query or buyer_budget is None:
-        llm = get_llm_instance()
-        if llm:
-            try:
-                from langchain_core.messages import SystemMessage, HumanMessage
-                from app.prompts.agent_prompt import USER_INTENT_EXTRACTION_PROMPT
-
-                prompt = USER_INTENT_EXTRACTION_PROMPT.format(buyer_request=buyer_request)
-                response = await llm.ainvoke([
-                    SystemMessage(content="You are an intent extractor. Return only valid JSON."),
-                    HumanMessage(content=prompt)
-                ])
-                # Clean possible markdown code fences
-                content = response.content.strip()
-                if content.startswith("```json"):
-                    content = content[7:]
-                if content.startswith("```"):
-                    content = content[3:]
-                if content.endswith("```"):
-                    content = content[:-3]
-                parsed = json.loads(content.strip())
-                search_query = search_query or parsed.get("search_query")
-                buyer_budget = buyer_budget if buyer_budget is not None else parsed.get("max_price")
-            except Exception as e:
-                logger.warning(f"LLM extraction error ({e}), using fallback parser.")
-                parsed = parse_intent_fallback(buyer_request)
-                search_query = search_query or parsed.get("search_query")
-                buyer_budget = buyer_budget if buyer_budget is not None else parsed.get("max_price")
-        else:
-            parsed = parse_intent_fallback(buyer_request)
-            search_query = search_query or parsed.get("search_query")
-            buyer_budget = buyer_budget if buyer_budget is not None else parsed.get("max_price")
+        curated = await curate_user_intent_with_llm(buyer_request)
+        search_query = search_query or curated.get("search_query")
+        buyer_budget = buyer_budget if buyer_budget is not None else curated.get("max_price")
 
     return {
         "search_query": search_query,
         "buyer_budget": buyer_budget,
         "current_step": "understand_request",
         "status": AgentStatus.SEARCHING.value
+    }ue
     }
 
 

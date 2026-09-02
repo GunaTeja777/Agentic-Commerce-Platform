@@ -9,10 +9,13 @@ class AgentSettings(BaseSettings):
     API_V1_PREFIX: str = "/api"
     
     # LLM Settings
-    LLM_PROVIDER: str = "gemini"  # "gemini" or "openai"
+    LLM_PROVIDER: str = "gemini"  # "gemini", "huggingface", "groq", or "openai"
     LLM_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
+    HUGGINGFACE_API_KEY: Optional[str] = None
+    HF_TOKEN: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gemini-1.5-flash"
     LLM_TEMPERATURE: float = 0.1
     
@@ -33,8 +36,13 @@ class AgentSettings(BaseSettings):
     @property
     def effective_api_key(self) -> Optional[str]:
         """Resolve API key based on provider or explicit env variables."""
-        if self.LLM_PROVIDER.lower() in ["gemini", "google"]:
+        provider = self.LLM_PROVIDER.lower()
+        if provider in ["gemini", "google"]:
             return self.GEMINI_API_KEY or self.LLM_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        elif provider in ["huggingface", "hf"]:
+            return self.HUGGINGFACE_API_KEY or self.HF_TOKEN or self.LLM_API_KEY or os.environ.get("HUGGINGFACE_API_KEY") or os.environ.get("HF_TOKEN")
+        elif provider in ["groq"]:
+            return self.GROQ_API_KEY or self.LLM_API_KEY or os.environ.get("GROQ_API_KEY")
         return self.OPENAI_API_KEY or self.LLM_API_KEY or os.environ.get("OPENAI_API_KEY")
 
     @property

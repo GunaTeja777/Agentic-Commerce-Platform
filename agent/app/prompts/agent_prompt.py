@@ -9,15 +9,37 @@ CORE RULES:
 5. If any tool or service is unavailable, fail closed gracefully without making dangerous assumptions.
 """
 
-USER_INTENT_EXTRACTION_PROMPT = """Extract the buyer's intended product category/keywords and budget (in INR) from their request.
-Example Input: "I need a laptop for work under ₹70,000."
-Output JSON:
-{
+USER_INTENT_EXTRACTION_PROMPT = """You are an intent curation engine for an AI Agentic Commerce Platform.
+Analyze the buyer's natural language request and extract structured search parameters.
+
+Curate the intent into exact JSON:
+- "search_query": Clean keyword representing the primary product (e.g. "laptop", "monitor", "headphones", "mouse", "keyboard").
+- "max_price": The maximum budget in INR (numeric number, e.g. 70000, 60000, 15000). If not specified, set to null.
+- "category": Broad product category ("Laptops", "Peripherals", "Accessories", "Audio", "Monitors").
+- "use_case": Primary intended use ("work", "gaming", "student", "creator", "travel", "general").
+- "priority_feature": Key desired feature if mentioned (e.g. "battery", "4k", "wireless", "ergonomic", "lightweight").
+
+Examples:
+1. Input: "I need a lightweight laptop for work under ₹60,000 with good battery."
+Output:
+{{
+  "search_query": "laptop",
+  "max_price": 60000,
+  "category": "Laptops",
+  "use_case": "work",
+  "priority_feature": "battery"
+}}
+
+2. Input: "Buy laptop for work under 70,000"
+Output:
+{{
   "search_query": "laptop",
   "max_price": 70000,
-  "category": null
-}
+  "category": "Laptops",
+  "use_case": "work",
+  "priority_feature": "productivity"
+}}
 
 Input: {buyer_request}
-Respond ONLY with a valid JSON object.
+Respond ONLY with a valid JSON object. No explanation or code fences.
 """
