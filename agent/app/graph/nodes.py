@@ -328,14 +328,15 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
 
     if is_error:
         # FAIL CLOSED
-        msg = f"Payment authorization could not be completed because the merchant policy service is unavailable. ({reason})"
+        msg = f"I couldn't verify the transaction policy, so I cannot proceed with the purchase. Payment authorization could not be completed because the merchant policy service is unavailable. ({reason})"
         logger.error(f"[Node: PolicyCheck] Policy Service unavailable (FAIL-CLOSED): {reason}")
         return {
             "policy_result": result,
             "status": AgentStatus.ERROR.value,
             "current_step": "policy_service_failed",
             "final_message": msg,
-            "error_message": reason
+            "error_message": reason,
+            "razorpay_call_count": 0
         }
 
     if not is_allowed:

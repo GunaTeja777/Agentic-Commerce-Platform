@@ -37,6 +37,7 @@ class AgentState(TypedDict, total=False):
     # Correlation and structured contract
     request_id: Optional[str]
     structured_request: Optional[Dict[str, Any]]
+    razorpay_call_count: Optional[int]
 
     # Workflow lifecycle & messaging
     status: str

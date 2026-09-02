@@ -125,6 +125,7 @@ async def run_agent_workflow(
         "buyer_decision": buyer_decision,
         "request_id": request_id,
         "structured_request": structured_request,
+        "razorpay_call_count": 0,
         "candidate_products": [],
         "recommendations": [],
         "cart_items": [],

@@ -38,7 +38,7 @@ async def execute_policy_check(
         return {
             "success": False,
             "allowed": False,
-            "reason": f"Payment could not be authorized because the merchant policy service is unavailable. ({str(e)})",
+            "reason": f"Policy verification failed: Policy service is unavailable ({str(e)})",
             "max_transaction_inr": 0.0,
             "requested_amount_inr": amount_inr,
             "policy_service_error": True,
@@ -50,7 +50,7 @@ async def execute_policy_check(
         return {
             "success": False,
             "allowed": False,
-            "reason": f"Payment could not be authorized because the merchant policy service is unavailable. ({str(e)})",
+            "reason": f"Policy verification failed: Unable to verify transaction policy ({str(e)})",
             "max_transaction_inr": 0.0,
             "requested_amount_inr": amount_inr,
             "policy_service_error": True,
