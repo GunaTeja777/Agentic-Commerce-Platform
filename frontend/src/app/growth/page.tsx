@@ -26,16 +26,29 @@ const GROWTH_CHART_DATA = [
 ];
 
 export default function GrowthPage() {
-  const { growthOpportunities, toggleGrowthOpportunity } = useCommerce();
+  const { growthOpportunities, toggleGrowthOpportunity, transactions } = useCommerce();
+
+  const capturedTxns = transactions.filter(t => t.paymentStatus === 'Captured' || t.paymentStatus === 'Successful');
+  const upsellTxns = capturedTxns.filter(t => (t.upsellTotal || 0) > 0);
+  const conversionRate = capturedTxns.length > 0 ? ((upsellTxns.length / capturedTxns.length) * 100).toFixed(1) : '68.4';
+  const dynamicUpsellRevenue = capturedTxns.reduce((sum, t) => sum + (t.upsellTotal || 0), 0);
+  const displayAiRevenue = dynamicUpsellRevenue > 0 ? dynamicUpsellRevenue : 42500;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Growth Engine</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Data-driven upsell and cross-sell opportunities backed by merchant catalog relationship rules
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Growth Engine</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Data-driven upsell and cross-sell opportunities backed by merchant catalog relationship rules
+          </p>
+        </div>
+        <div>
+          <span className="px-3 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-mono">
+            Test Mode Metrics
+          </span>
+        </div>
       </div>
 
       {/* Critical Principle Notice */}
@@ -53,13 +66,13 @@ export default function GrowthPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <span className="text-xs font-semibold text-slate-500">AI-assisted revenue</span>
-          <div className="text-2xl font-bold text-slate-900">₹42,500</div>
+          <div className="text-2xl font-bold text-slate-900">₹{displayAiRevenue.toLocaleString()}</div>
           <p className="text-[11px] text-emerald-600 font-medium">Generated via agent growth tool</p>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-2">
           <span className="text-xs font-semibold text-slate-500">Upsell Conversion Rate</span>
-          <div className="text-2xl font-bold text-slate-900">68.4%</div>
+          <div className="text-2xl font-bold text-slate-900">{conversionRate}%</div>
           <p className="text-[11px] text-emerald-600 font-medium">Acceptance rate on add-on recommendations</p>
         </div>
 

@@ -102,7 +102,76 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export const AGENT_BASE = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8001';
+
+export interface AgentChatResponse {
+  status: string;
+  message: string;
+  merchant_id: number;
+  selected_product?: {
+    product_id: number;
+    product_name: string;
+    price_inr: number;
+    category?: string;
+    stock_quantity?: number;
+    description?: string;
+    tags?: string[];
+  };
+  recommendations: Array<{
+    id?: number;
+    product_id?: number;
+    name?: string;
+    product_name?: string;
+    price_inr: number;
+    reason: string;
+    source: string;
+    stock?: number;
+    stock_quantity?: number;
+  }>;
+  cart: Array<{
+    product_id: number;
+    product_name: string;
+    price_inr: number;
+    quantity: number;
+    is_upsell?: boolean;
+  }>;
+  subtotal_inr: number;
+  total_inr: number;
+  policy_result?: {
+    allowed: boolean;
+    reason: string;
+    max_transaction_inr: number;
+  };
+  order_id?: number;
+  payment_info?: {
+    razorpay_order_id?: string;
+    amount?: number;
+    key_id?: string;
+    currency?: string;
+  };
+  next_action?: string;
+}
+
 export const apiService = {
+  async chatAgent(payload: {
+    message: string;
+    merchant_id?: number;
+    buyer_id?: string;
+    buyer_decision?: string;
+    context?: Record<string, unknown>;
+  }): Promise<AgentChatResponse> {
+    return fetchJson<AgentChatResponse>(`${AGENT_BASE}/agent/chat`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message: payload.message,
+        merchant_id: payload.merchant_id || 1,
+        buyer_id: payload.buyer_id || 'demo-ai-buyer',
+        buyer_decision: payload.buyer_decision,
+        context: payload.context
+      })
+    });
+  },
+
   async getProducts(): Promise<Product[]> {
     try {
       const data = await fetchJson<{ items: BackendProductItem[] }>(`${API_BASE}/products?limit=50`);

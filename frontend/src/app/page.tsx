@@ -32,18 +32,38 @@ const CHART_DATA = [
 ];
 
 export default function OverviewPage() {
-  const { policy } = useCommerce();
+  const { policy, transactions } = useCommerce();
+
+  // Aggregate metrics dynamically from real backend transactions if available
+  const capturedTxns = transactions.filter(t => t.paymentStatus === 'Captured' || t.paymentStatus === 'Successful');
+  const dynamicTotalRevenue = capturedTxns.reduce((sum, t) => sum + t.totalAmount, 0);
+  const dynamicUpsellRevenue = capturedTxns.reduce((sum, t) => sum + (t.upsellTotal || 0), 0);
+  const dynamicAiRevenue = dynamicTotalRevenue;
+  const dynamicAvgOrderValue = capturedTxns.length > 0 ? Math.round(dynamicTotalRevenue / capturedTxns.length) : 5100;
+  const totalOrdersCount = capturedTxns.length;
+
+  const displayTotalRevenue = dynamicTotalRevenue > 0 ? dynamicTotalRevenue : 124500;
+  const displayAiRevenue = dynamicAiRevenue > 0 ? dynamicAiRevenue : 42500;
+  const displayUpsellRevenue = dynamicUpsellRevenue > 0 ? dynamicUpsellRevenue : 8500;
+  const displayAvgOrderValue = dynamicTotalRevenue > 0 ? dynamicAvgOrderValue : 5100;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          Good morning, Demo Merchant
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Your AI agent is helping buyers discover, purchase and transact safely.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Good morning, Demo Merchant
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Your AI agent is helping buyers discover, purchase and transact safely.
+          </p>
+        </div>
+        <div>
+          <span className="px-3 py-1 rounded-md text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs font-mono">
+            Test Mode Metrics
+          </span>
+        </div>
       </div>
 
       {/* KPI Cards Grid */}
@@ -57,10 +77,10 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹1,24,500</div>
+            <div className="text-2xl font-bold text-slate-900">₹{displayTotalRevenue.toLocaleString()}</div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>+18.4% from last week</span>
+              <span>{totalOrdersCount > 0 ? `${totalOrdersCount} test orders recorded` : '+18.4% from last week'}</span>
             </div>
           </div>
         </div>
@@ -74,10 +94,10 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹42,500</div>
+            <div className="text-2xl font-bold text-slate-900">₹{displayAiRevenue.toLocaleString()}</div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>34.1% of total sales</span>
+              <span>Test Mode Growth Attribution</span>
             </div>
           </div>
         </div>
@@ -91,7 +111,7 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹8,500</div>
+            <div className="text-2xl font-bold text-slate-900">₹{displayUpsellRevenue.toLocaleString()}</div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 mt-1">
               <ArrowUpRight className="w-3.5 h-3.5" />
               <span>+₹1,500 avg per cross-sell</span>
@@ -108,9 +128,9 @@ export default function OverviewPage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-bold text-slate-900">₹5,100</div>
+            <div className="text-2xl font-bold text-slate-900">₹{displayAvgOrderValue.toLocaleString()}</div>
             <div className="flex items-center gap-1 text-[11px] font-medium text-purple-600 mt-1">
-              <span>+₹900 vs normal basket</span>
+              <span>Test Mode Average Size</span>
             </div>
           </div>
         </div>

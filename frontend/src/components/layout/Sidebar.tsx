@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  Sparkles,
   LayoutDashboard,
   Bot,
   Activity,
@@ -18,6 +19,7 @@ import {
 import { useCommerce } from '@/context/CommerceContext';
 
 const NAV_ITEMS = [
+  { name: 'Live Demo', href: '/demo', icon: Sparkles, badge: 'Phase 5' },
   { name: 'Overview', href: '/', icon: LayoutDashboard },
   { name: 'AI Buyer', href: '/buyer', icon: Bot },
   { name: 'Agent Activity', href: '/activity', icon: Activity },
@@ -58,14 +60,23 @@ export const Sidebar: React.FC = () => {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-xs font-medium transition-colors ${
+                className={`flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition-colors ${
                   isActive
                     ? 'bg-indigo-600 text-white shadow-sm'
                     : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-                <span>{item.name}</span>
+                <div className="flex items-center gap-3">
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span>{item.name}</span>
+                </div>
+                {item.badge && (
+                  <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                    isActive ? 'bg-indigo-800 text-white' : 'bg-indigo-900/80 text-indigo-300'
+                  }`}>
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}
