@@ -2,7 +2,7 @@ import hmac
 import hashlib
 import logging
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,7 @@ logger = logging.getLogger("backend.payment_service")
 
 class PaymentService:
     @staticmethod
-    def get_razorpay_client() -> razorpay.Client:
+    def get_razorpay_client() -> Any:
         """Initialize Razorpay Python SDK client with test credentials."""
         return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
@@ -198,7 +198,7 @@ class PaymentService:
             txn.provider_reference = razorpay_order_id
             txn.status = "pending"
             txn.amount_inr = amount_inr
-            txn.updated_at = datetime.utcnow()
+            txn.updated_at = datetime.now(timezone.utc)
 
         await db.commit()
         await db.refresh(txn)
@@ -333,7 +333,7 @@ class PaymentService:
             logger.error(f"[PAYMENT] Invalid payment signature for Order {order_id}, Payment {razorpay_payment_id}")
             txn.status = "failed"
             order.status = "failed"
-            txn.updated_at = datetime.utcnow()
+            txn.updated_at = datetime.now(timezone.utc)
             await db.commit()
 
             await AuditService.log_action(
@@ -362,7 +362,7 @@ class PaymentService:
         logger.info(f"[PAYMENT] Signature verified successfully for Order {order_id} and Payment {razorpay_payment_id}")
         txn.status = "captured"
         txn.provider_reference = razorpay_order_id
-        txn.updated_at = datetime.utcnow()
+        txn.updated_at = datetime.now(timezone.utc)
 
         order.status = "paid"
 
@@ -445,7 +445,7 @@ class PaymentService:
 
         if txn and txn.status != "captured":
             txn.status = "failed"
-            txn.updated_at = datetime.utcnow()
+            txn.updated_at = datetime.now(timezone.utc)
             order.status = "failed"
             await db.commit()
 

@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, TypedDict
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -8,6 +8,13 @@ from app.models.order import Order, OrderItem
 from app.models.transaction import Transaction
 from app.services.policy_service import PolicyService
 from app.services.audit_service import AuditService
+
+class CalculatedOrderItem(TypedDict):
+    product: Product
+    product_id: int
+    quantity: int
+    unit_price_inr: float
+    total_price_inr: float
 
 class OrderService:
     @staticmethod
@@ -30,7 +37,7 @@ class OrderService:
         res = await db.execute(query)
         db_products = {p.product_id: p for p in res.scalars().all()}
 
-        calculated_items = []
+        calculated_items: List[CalculatedOrderItem] = []
         subtotal_inr = 0.0
 
         for item in items:
@@ -164,13 +171,10 @@ class OrderService:
 
         order_items_objs = []
         for c_item in calculated_items:
-            prod_obj: Product = c_item["product"]
-            qty_val: int = int(c_item["quantity"])
-
             order_item = OrderItem(
                 order_id=order.id,
                 product_id=c_item["product_id"],
-                quantity=qty_val,
+                quantity=c_item["quantity"],
                 unit_price_inr=c_item["unit_price_inr"],
                 total_price_inr=c_item["total_price_inr"]
             )
@@ -178,7 +182,8 @@ class OrderService:
             order_items_objs.append(order_item)
 
             # Deduct stock safely ensuring non-negative
-            prod_obj.stock_quantity = max(0, prod_obj.stock_quantity - qty_val)
+            prod = c_item["product"]
+            prod.stock_quantity = max(0, prod.stock_quantity - c_item["quantity"])
 
         txn = Transaction(
             order_id=order.id,
