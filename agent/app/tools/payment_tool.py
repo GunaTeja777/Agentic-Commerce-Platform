@@ -11,7 +11,8 @@ logger = logging.getLogger("agent.tools.payment")
 async def execute_payment_initiation(
     merchant_id: int,
     order_id: int,
-    policy_allowed: bool = False
+    policy_allowed: bool = False,
+    request_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Execute Razorpay test payment order creation with strict policy gating.
@@ -26,12 +27,14 @@ async def execute_payment_initiation(
             "status": "blocked",
             "reason": "Payment initiation blocked by merchant policy gate. Transaction limits exceeded.",
             "payment_attempted": False,
-            "order_id": order_id
+            "order_id": order_id,
+            "razorpay_call_count": 0,
+            "request_id": request_id
         }
 
     try:
         logger.info(f"[PAYMENT TOOL] Calling backend to create Razorpay test order for Order {order_id}")
-        res = await backend_client.create_payment_order(order_id=order_id)
+        res = await backend_client.create_payment_order(order_id=order_id, request_id=request_id)
         return {
             "status": "ready_for_checkout",
             "payment_attempted": True,
@@ -41,7 +44,8 @@ async def execute_payment_initiation(
             "amount_inr": res.get("amount_inr"),
             "currency": res.get("currency", "INR"),
             "key_id": res.get("key_id"),
-            "receipt": res.get("receipt")
+            "receipt": res.get("receipt"),
+            "request_id": request_id
         }
     except BackendClientError as e:
         logger.error(f"[PAYMENT TOOL] Backend payment creation error: {e}")
@@ -49,7 +53,9 @@ async def execute_payment_initiation(
             "status": "error",
             "reason": f"Payment initialization failed: {str(e)}",
             "payment_attempted": False,
-            "order_id": order_id
+            "order_id": order_id,
+            "error_code": "PAYMENT_INITIATION_FAILED",
+            "request_id": request_id
         }
     except Exception as e:
         logger.error(f"[PAYMENT TOOL] Unexpected payment tool error: {e}")
@@ -57,7 +63,9 @@ async def execute_payment_initiation(
             "status": "error",
             "reason": f"Unexpected error during payment initialization: {str(e)}",
             "payment_attempted": False,
-            "order_id": order_id
+            "order_id": order_id,
+            "error_code": "PAYMENT_INITIATION_ERROR",
+            "request_id": request_id
         }
 
 

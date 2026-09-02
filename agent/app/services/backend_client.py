@@ -138,7 +138,12 @@ class BackendClient:
             logger.error(f"Connection error fetching recommendations: {e}")
             raise BackendClientError(f"Unable to connect to Growth Recommendation Service: {str(e)}") from e
 
-    async def check_policy(self, merchant_id: int, amount_inr: float) -> PolicyResult:
+    async def check_policy(
+        self,
+        merchant_id: int,
+        amount_inr: float,
+        request_id: Optional[str] = None
+    ) -> PolicyResult:
         """
         Evaluate transaction against merchant limit policy via FastAPI POST /api/policies/check.
         CRITICAL: This check is deterministic and authoritative.
@@ -149,9 +154,10 @@ class BackendClient:
             "merchant_id": merchant_id,
             "amount_inr": amount_inr
         }
+        headers = {"X-Request-ID": request_id} if request_id else {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
                 return PolicyResult(
@@ -171,7 +177,8 @@ class BackendClient:
         self,
         merchant_id: int,
         buyer_id: str,
-        items: List[Dict[str, Any]]
+        items: List[Dict[str, Any]],
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Create internal order in PostgreSQL database via POST /api/orders.
@@ -181,11 +188,13 @@ class BackendClient:
         payload = {
             "merchant_id": merchant_id,
             "buyer_id": buyer_id,
-            "items": [{"product_id": item["product_id"], "quantity": item.get("quantity", 1)} for item in items]
+            "items": [{"product_id": item["product_id"], "quantity": item.get("quantity", 1)} for item in items],
+            "request_id": request_id
         }
+        headers = {"X-Request-ID": request_id} if request_id else {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
@@ -195,16 +204,17 @@ class BackendClient:
             logger.error(f"Failed to create order: {e}")
             raise BackendClientError(f"Unable to connect to Order Service: {str(e)}") from e
 
-    async def create_payment_order(self, order_id: int) -> Dict[str, Any]:
+    async def create_payment_order(self, order_id: int, request_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Initiate Razorpay test order creation via POST /api/payments/create.
         Amount is verified server-side.
         """
         url = f"{self.base_url}/payments/create"
-        payload = {"order_id": order_id}
+        payload = {"order_id": order_id, "request_id": request_id}
+        headers = {"X-Request-ID": request_id} if request_id else {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
@@ -219,7 +229,8 @@ class BackendClient:
         order_id: int,
         razorpay_order_id: str,
         razorpay_payment_id: str,
-        razorpay_signature: str
+        razorpay_signature: str,
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Cryptographically verify Razorpay signature via POST /api/payments/verify.
@@ -229,11 +240,13 @@ class BackendClient:
             "order_id": order_id,
             "razorpay_order_id": razorpay_order_id,
             "razorpay_payment_id": razorpay_payment_id,
-            "razorpay_signature": razorpay_signature
+            "razorpay_signature": razorpay_signature,
+            "request_id": request_id
         }
+        headers = {"X-Request-ID": request_id} if request_id else {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as e:
