@@ -33,12 +33,18 @@ class GrowthService:
 
         recommendations = []
         for rel, target in rows:
-            if rel.relationship_type == "frequently_bought_with":
-                reason = f"Frequently bought together with {base_product.product_name}"
-            elif rel.relationship_type == "compatible":
-                reason = f"Compatible accessory for {base_product.product_name}"
+            if float(target.price_inr) > float(base_product.price_inr) * 2:
+                if rel.relationship_type == "compatible":
+                    reason = f"Compatible device for {base_product.product_name}"
+                else:
+                    reason = f"Designed to be paired with {base_product.product_name}"
             else:
-                reason = f"Recommended item for {base_product.product_name}"
+                if rel.relationship_type == "frequently_bought_with":
+                    reason = f"Frequently bought together with {base_product.product_name}"
+                elif rel.relationship_type == "compatible":
+                    reason = f"Compatible accessory for {base_product.product_name}"
+                else:
+                    reason = f"Recommended item for {base_product.product_name}"
 
             recommendations.append({
                 "product_id": target.product_id,
