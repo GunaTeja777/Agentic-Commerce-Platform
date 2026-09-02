@@ -186,13 +186,13 @@ export default function LiveDemoPage() {
             }
           });
         }
-      } catch (e) {
+      } catch {
         // Fallback silently to live parsed local values
       }
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [buyerInput]);
+  }, [buyerInput, liveParsed.budget, liveParsed.useCase, liveParsed.priority]);
 
   // Initialize products fallback
   const laptopItem: Product = products.find(p => p.category === 'Laptops') || {
