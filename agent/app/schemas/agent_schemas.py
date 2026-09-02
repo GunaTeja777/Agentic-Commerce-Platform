@@ -83,6 +83,49 @@ class CartItem(BaseModel):
     is_upsell: bool = False
 
 
+class AgentErrorCode(str, Enum):
+    """Standardized error codes for commerce agent and backend operations."""
+    PRODUCT_NOT_FOUND = "PRODUCT_NOT_FOUND"
+    PRODUCT_INACTIVE = "PRODUCT_INACTIVE"
+    INSUFFICIENT_STOCK = "INSUFFICIENT_STOCK"
+    POLICY_BLOCKED = "POLICY_BLOCKED"
+    POLICY_SERVICE_UNAVAILABLE = "POLICY_SERVICE_UNAVAILABLE"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
+    PAYMENT_ALREADY_COMPLETED = "PAYMENT_ALREADY_COMPLETED"
+    INVALID_PAYMENT_SIGNATURE = "INVALID_PAYMENT_SIGNATURE"
+    INVALID_WEBHOOK_SIGNATURE = "INVALID_WEBHOOK_SIGNATURE"
+
+
+class BuyerPreferences(BaseModel):
+    use_case: Optional[str] = "work"
+    priority: Optional[str] = "battery"
+    model_config = ConfigDict(extra="allow")
+
+
+class BuyerAuthorization(BaseModel):
+    max_amount_inr: float = 70000.0
+    allow_recommendations: bool = True
+    model_config = ConfigDict(extra="allow")
+
+
+class StructuredBuyerRequest(BaseModel):
+    """Structured Agent-to-Agent request payload sent by AI Buyer."""
+    buyer_id: str = "demo-ai-buyer"
+    intent: str = "purchase"
+    category: str = "laptop"
+    budget_inr: float = 70000.0
+    preferences: Optional[BuyerPreferences] = Field(default_factory=BuyerPreferences)
+    authorization: Optional[BuyerAuthorization] = Field(default_factory=BuyerAuthorization)
+    request_id: Optional[str] = None
+
+
+class StructuredPolicyResponse(BaseModel):
+    """Clean policy summary for structured agent response."""
+    allowed: bool
+    limit_inr: float
+    reason: Optional[str] = None
+
+
 class AgentResponse(BaseModel):
     """Standard response model emitted by the Agent."""
     status: AgentStatus
@@ -91,17 +134,21 @@ class AgentResponse(BaseModel):
     selected_product: Optional[ProductResult] = None
     recommendations: List[GrowthRecommendationItem] = Field(default_factory=list)
     cart: List[CartItem] = Field(default_factory=list)
+    items: List[CartItem] = Field(default_factory=list)  # Alias for structured contract
     subtotal_inr: float = 0.0
     total_inr: float = 0.0
     policy_result: Optional[PolicyResult] = None
+    policy: Optional[StructuredPolicyResponse] = None
     order_id: Optional[int] = None
     payment_info: Optional[Dict[str, Any]] = None
     next_action: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 class AgentChatRequest(BaseModel):
     """Input payload for agent execution or multi-turn chat."""
-    message: str = Field(..., description="Buyer query or input message")
+    message: Optional[str] = Field(default=None, description="Buyer query or input message")
+    structured_request: Optional[StructuredBuyerRequest] = Field(default=None, description="Structured A2A Buyer intent")
     merchant_id: int = Field(default=1, description="Target Merchant ID")
     buyer_id: Optional[str] = Field(default="demo-ai-buyer", description="Identifier for buyer")
     buyer_decision: Optional[str] = Field(
@@ -109,3 +156,4 @@ class AgentChatRequest(BaseModel):
         description="Explicit approval ('yes'/'approve') or rejection ('no'/'reject') for pending upsells"
     )
     context: Optional[Dict[str, Any]] = Field(default=None, description="Optional conversation state context")
+    request_id: Optional[str] = Field(default=None, description="Correlation / Request ID")

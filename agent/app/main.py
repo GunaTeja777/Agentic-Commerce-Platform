@@ -15,6 +15,7 @@ from app.schemas.agent_schemas import (
     GrowthRecommendationItem,
     CartItem,
     PolicyResult,
+    StructuredPolicyResponse,
 )
 from app.graph.workflow import run_agent_workflow
 from app.services.backend_client import backend_client
@@ -56,14 +57,28 @@ async def chat_agent(payload: AgentChatRequest):
     """
     Primary endpoint for AI Buyer to interact with Merchant AI Agent.
     Orchestrates search, data-backed upsells, buyer approval gating, and deterministic policy checks.
+    Supports both freeform natural language and structured A2A JSON payloads.
     """
     try:
+        msg = payload.message
+        buyer_id = payload.buyer_id or "demo-ai-buyer"
+        req_id = payload.request_id
+
+        if payload.structured_request:
+            sr = payload.structured_request
+            buyer_id = sr.buyer_id or buyer_id
+            req_id = sr.request_id or req_id
+            if not msg:
+                msg = f"I need a {sr.category} with budget {sr.budget_inr} INR for {sr.preferences.use_case if sr.preferences else 'work'}"
+
         state = await run_agent_workflow(
-            buyer_request=payload.message,
+            buyer_request=msg or "I need a laptop for work under ₹70,000.",
             merchant_id=payload.merchant_id,
-            buyer_id=payload.buyer_id or "demo-ai-buyer",
+            buyer_id=buyer_id,
             buyer_decision=payload.buyer_decision,
-            context=payload.context
+            context=payload.context,
+            request_id=req_id,
+            structured_request=payload.structured_request.model_dump() if payload.structured_request else None
         )
 
         selected_prod = None
@@ -81,8 +96,14 @@ async def chat_agent(payload: AgentChatRequest):
         ]
 
         policy_res = None
+        structured_policy = None
         if state.get("policy_result"):
             policy_res = PolicyResult.model_validate(state["policy_result"])
+            structured_policy = StructuredPolicyResponse(
+                allowed=policy_res.allowed,
+                limit_inr=policy_res.max_transaction_inr,
+                reason=policy_res.reason
+            )
 
         next_action = None
         status = AgentStatus(state.get("status", AgentStatus.SEARCHING.value))
@@ -100,16 +121,22 @@ async def chat_agent(payload: AgentChatRequest):
             selected_product=selected_prod,
             recommendations=recs,
             cart=cart,
+            items=cart,
             subtotal_inr=state.get("subtotal", 0.0),
             total_inr=state.get("total", 0.0),
             policy_result=policy_res,
+            policy=structured_policy,
             order_id=state.get("order_id"),
             payment_info=state.get("payment_info"),
-            next_action=next_action
+            next_action=next_action,
+            request_id=state.get("request_id", req_id)
         )
     except Exception as e:
         logger.error(f"Error during agent execution: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail={"error_code": "AGENT_EXECUTION_ERROR", "detail": str(e)}
+        )
 
 
 async def run_cli_demo():

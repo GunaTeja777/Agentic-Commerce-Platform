@@ -34,6 +34,10 @@ class AgentState(TypedDict, total=False):
     payment_info: Optional[Dict[str, Any]]
     payment_status: Optional[str]
 
+    # Correlation and structured contract
+    request_id: Optional[str]
+    structured_request: Optional[Dict[str, Any]]
+
     # Workflow lifecycle & messaging
     status: str
     current_step: str
