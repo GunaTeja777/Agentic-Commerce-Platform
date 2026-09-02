@@ -156,7 +156,8 @@ class PaymentService:
                 "currency": "INR",
                 "key_id": settings.RAZORPAY_KEY_ID,
                 "status": "pending",
-                "receipt": receipt_str
+                "receipt": receipt_str,
+                "request_id": request_id
             }
 
         # 6. Create Razorpay Test Order via SDK
@@ -231,7 +232,8 @@ class PaymentService:
             "currency": "INR",
             "key_id": settings.RAZORPAY_KEY_ID,
             "status": "pending",
-            "receipt": receipt_str
+            "receipt": receipt_str,
+            "request_id": request_id
         }
 
     @staticmethod
@@ -409,7 +411,8 @@ class PaymentService:
             "order_id": order.id,
             "amount_inr": float(order.total_inr),
             "razorpay_payment_id": razorpay_payment_id,
-            "message": "Payment verified and captured successfully."
+            "message": "Payment verified and captured successfully.",
+            "request_id": request_id
         }
 
     @staticmethod
@@ -465,7 +468,8 @@ class PaymentService:
             "status": "failed",
             "order_id": order.id,
             "reason": reason,
-            "error_code": error_code or "PAYMENT_FAILED"
+            "error_code": error_code or "PAYMENT_FAILED",
+            "request_id": request_id
         }
 
     @staticmethod

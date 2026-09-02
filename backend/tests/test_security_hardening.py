@@ -320,5 +320,5 @@ async def test_sec_14_correlation_request_id_traced(async_client):
     audit_resp = await async_client.get("/api/audit?merchant_id=1")
     assert audit_resp.status_code == 200
     items = audit_resp.json()["items"]
-    matched = [item for item in items if item.get("metadata_json", {}).get("request_id") == req_id]
+    matched = [item for item in items if (item.get("metadata_json") or {}).get("request_id") == req_id]
     assert len(matched) > 0
