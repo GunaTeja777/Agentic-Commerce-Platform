@@ -223,7 +223,6 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
         "buyer_budget": buyer_budget,
         "current_step": "understand_request",
         "status": AgentStatus.SEARCHING.value
-    }ue
     }
 
 

@@ -341,5 +341,58 @@ export const apiService = {
       console.warn('Could not fetch orders from backend, using default mock transactions:', e);
     }
     return INITIAL_TRANSACTIONS;
+  },
+
+  async curatePrompt(prompt: string, buyerId: string = 'demo-ai-buyer'): Promise<{
+    search_query: string;
+    category: string;
+    budget_inr?: number;
+    use_case: string;
+    priority_feature: string;
+    intent: string;
+    structured_request: any;
+  }> {
+    try {
+      const res = await fetchJson<any>(`http://localhost:8001/agent/curate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, buyer_id: buyerId })
+      });
+      return res;
+    } catch (e) {
+      console.warn('Agent curation endpoint unavailable, falling back to local extraction:', e);
+      return {
+        search_query: 'product',
+        category: 'General',
+        budget_inr: 70000,
+        use_case: 'work',
+        priority_feature: 'productivity',
+        intent: 'purchase_product',
+        structured_request: {
+          buyer_id: buyerId,
+          intent: 'purchase_product',
+          category: 'product',
+          budget_inr: 70000,
+          preferences: { use_case: 'work', priority: 'productivity' }
+        }
+      };
+    }
+  },
+
+  async chatAgent(payload: {
+    message?: string;
+    buyer_id?: string;
+    merchant_id?: number;
+    buyer_decision?: 'accepted' | 'declined' | 'pending';
+    context?: any;
+    request_id?: string;
+    structured_request?: any;
+  }): Promise<any> {
+    const res = await fetchJson<any>(`http://localhost:8001/agent/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    return res;
   }
 };

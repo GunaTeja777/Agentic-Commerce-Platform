@@ -77,29 +77,53 @@ function parsePromptDetails(prompt: string) {
 
   let category = 'laptop';
   let categoryLabel = 'Laptops';
-  if (/monitor|display|screen/i.test(prompt)) {
+  if (/mic|microphone/i.test(prompt)) {
+    category = 'mic';
+    categoryLabel = 'Audio & Microphones';
+  } else if (/headphone|earphone|headset|audio|speaker/i.test(prompt)) {
+    category = 'headphones';
+    categoryLabel = 'Audio';
+  } else if (/monitor|display|screen/i.test(prompt)) {
     category = 'monitor';
     categoryLabel = 'Monitors';
+  } else if (/laptop|macbook|notebook|computer|pc/i.test(prompt)) {
+    category = 'laptop';
+    categoryLabel = 'Laptops';
+  } else if (/mouse|trackpad/i.test(prompt)) {
+    category = 'mouse';
+    categoryLabel = 'Peripherals';
+  } else if (/keyboard/i.test(prompt)) {
+    category = 'keyboard';
+    categoryLabel = 'Peripherals';
   } else if (/phone|mobile/i.test(prompt)) {
     category = 'smartphone';
     categoryLabel = 'Smartphones';
-  } else if (/mouse|trackpad/i.test(prompt)) {
-    category = 'mouse';
+  } else if (/bag|backpack/i.test(prompt)) {
+    category = 'bag';
     categoryLabel = 'Accessories';
-  } else if (/keyboard/i.test(prompt)) {
-    category = 'keyboard';
-    categoryLabel = 'Accessories';
-  } else if (/headphone|audio|earphone/i.test(prompt)) {
-    category = 'headphones';
-    categoryLabel = 'Audio';
+  } else {
+    // Dynamic fallback to first non-stopword
+    const cleanWords = prompt.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => !['i', 'need', 'a', 'an', 'the', 'for', 'under', 'below', 'with', 'want', 'to', 'buy', 'find', 'get', 'in', 'rs', 'inr', 'rupees'].includes(w));
+    if (cleanWords.length > 0) {
+      category = cleanWords[0];
+      categoryLabel = category.charAt(0).toUpperCase() + category.slice(1);
+    }
   }
 
   let useCase = 'work';
   if (/gaming|game/i.test(prompt)) useCase = 'gaming';
   else if (/student|college|study/i.test(prompt)) useCase = 'study';
-  else if (/creator|video|edit/i.test(prompt)) useCase = 'creative';
+  else if (/creator|video|stream|audio|music|edit/i.test(prompt)) useCase = 'creative';
+  else if (/travel|portable/i.test(prompt)) useCase = 'travel';
 
-  return { budget, category, categoryLabel, useCase };
+  let priority = 'productivity';
+  if (/battery/i.test(prompt)) priority = 'Good battery';
+  else if (/clarity|clear|sound|voice/i.test(prompt)) priority = 'High clarity';
+  else if (/noise\s*cancellation|anc/i.test(prompt)) priority = 'Noise cancellation';
+  else if (/wireless|bluetooth/i.test(prompt)) priority = 'Wireless';
+  else if (/lightweight|portable/i.test(prompt)) priority = 'Lightweight';
+
+  return { budget, category, categoryLabel, useCase, priority };
 }
 
 export default function LiveDemoPage() {
@@ -142,54 +166,43 @@ export default function LiveDemoPage() {
   const effectiveBudget = structuredRequest?.budget_inr || liveParsed.budget;
   const effectiveCategory = structuredRequest?.category || liveParsed.category;
   const effectiveUseCase = structuredRequest?.preferences?.use_case || liveParsed.useCase;
+  const effectivePriority = structuredRequest?.preferences?.priority || liveParsed.priority;
 
   // Initialize products fallback
-  const laptopItem = products.find(p => p.id === '1' || p.name.includes('NovaBook') || p.name.includes('Laptop')) || {
-    id: '1',
+  const laptopItem: Product = products.find(p => p.category === 'Laptops') || {
+    id: '1001',
     name: 'NovaBook Pro 14',
     category: 'Laptops',
     price: 65000,
-    stock: 12,
-    description: '14-inch OLED display, Intel Core Ultra 7, 16GB RAM, 512GB SSD',
-    agentReadableStatus: 'Available' as const,
-    compatibleProducts: ['4'],
-    frequentlyBoughtWith: ['4'],
-    specifications: { rating: '4.7', battery: '14 Hours' }
+    stock: 50,
+    description: 'Flagship 14-inch professional laptop'
   };
 
-  const mouseItem = products.find(p => p.id === '4' || p.name.includes('Mouse') || p.name.includes('AeroMouse')) || {
-    id: '4',
-    name: 'Wireless Mouse',
-    category: 'Peripherals',
+  const mouseItem: Product = products.find(p => p.name.includes('Mouse')) || {
+    id: '1021',
+    name: 'AeroMouse X1',
+    category: 'Accessories',
     price: 1500,
-    stock: 25,
-    description: 'Ergonomic wireless mouse with silent clicks',
-    agentReadableStatus: 'Available' as const,
-    compatibleProducts: [],
-    frequentlyBoughtWith: [],
-    specifications: {}
+    stock: 49,
+    description: 'Precision wireless ergonomic mouse'
   };
 
-  const monitorItem = products.find(p => p.id === '5' || p.name.includes('Monitor')) || {
-    id: '5',
+  const monitorItem: Product = products.find(p => p.category === 'Monitors') || {
+    id: '1006',
     name: 'UltraView 27 4K Monitor',
-    category: 'Peripherals',
+    category: 'Monitors',
     price: 12000,
-    stock: 5,
-    description: '27-inch 4K UHD IPS Display',
-    agentReadableStatus: 'Available' as const,
-    compatibleProducts: [],
-    frequentlyBoughtWith: [],
-    specifications: {}
+    stock: 20,
+    description: '27-inch 4K UHD designer monitor'
   };
 
-  // Reset Demo to clean state
-  const handleResetDemo = (keepInputText: boolean = false) => {
+  // Reset Demo State
+  const handleResetDemo = (keepInput: boolean = false) => {
     setAgentState('idle');
-    if (!keepInputText) {
+    if (!keepInput) {
       setBuyerInput('I need a laptop for work under ₹60,000.');
+      setStructuredRequest(null);
     }
-    setStructuredRequest(null);
     setMessages([]);
     setSelectedProduct(null);
     setRecommendation(null);
@@ -212,17 +225,26 @@ export default function LiveDemoPage() {
 
     const parsed = parsePromptDetails(query);
 
-    // 1. Structured Buyer Request
-    const structured: StructuredBuyerRequest = {
+    // 1. Structured Buyer Request (Curated via LLM / Rule Fallback)
+    let structured: StructuredBuyerRequest = {
       buyer_id: 'demo-ai-buyer',
       intent: `purchase_${parsed.category}`,
       category: parsed.category,
       budget_inr: parsed.budget,
       preferences: {
         use_case: parsed.useCase,
-        priority: parsed.useCase === 'gaming' ? 'performance' : 'battery'
+        priority: parsed.priority
       }
     };
+
+    try {
+      const curated = await apiService.curatePrompt(query, 'demo-ai-buyer');
+      if (curated && curated.structured_request) {
+        structured = curated.structured_request;
+      }
+    } catch (e) {
+      console.warn('Could not curate via LLM, using parsed local fallback:', e);
+    }
     setStructuredRequest(structured);
 
     setMessages([
@@ -238,8 +260,8 @@ export default function LiveDemoPage() {
     // Update timeline & agent state: Searching
     setAgentState('searching_catalog');
     setTimelineSteps([
-      { id: 't1', label: 'Request received', detail: `Parsed intent: ${parsed.categoryLabel} for ${parsed.useCase}, budget ₹${formatINR(parsed.budget)}`, status: 'done' },
-      { id: 't2', label: 'LangGraph Orchestrator', detail: `Querying Catalog Tool for ${parsed.categoryLabel.toLowerCase()} under ₹${formatINR(parsed.budget)}`, status: 'active' }
+      { id: 't1', label: 'Request received', detail: `Curated intent: ${structured.category} for ${structured.preferences.use_case}, budget ₹${formatINR(structured.budget_inr)}`, status: 'done' },
+      { id: 't2', label: 'LangGraph Orchestrator', detail: `Querying Catalog Tool for ${structured.category} under ₹${formatINR(structured.budget_inr)}`, status: 'active' }
     ]);
 
     try {
@@ -834,7 +856,7 @@ export default function LiveDemoPage() {
                 <span className="text-[11px] font-semibold text-slate-600 block">Preferences:</span>
                 <div className="flex flex-wrap gap-1.5">
                   <span className="px-2 py-0.5 bg-white text-purple-900 border border-purple-200 rounded text-[10px]">
-                    Good battery
+                    {effectivePriority}
                   </span>
                   <span className="px-2 py-0.5 bg-white text-purple-900 border border-purple-200 rounded text-[10px]">
                     Suitable for {effectiveUseCase}
@@ -858,7 +880,7 @@ export default function LiveDemoPage() {
                   value={buyerInput}
                   onChange={(e) => setBuyerInput(e.target.value)}
                   disabled={isProcessing || agentState !== 'idle'}
-                  placeholder="e.g. I need a laptop for work under ₹70,000."
+                  placeholder="e.g. I need a mic for work under ₹60,000."
                   className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-600 disabled:bg-slate-100"
                 />
                 <button
@@ -873,22 +895,20 @@ export default function LiveDemoPage() {
             </div>
 
             {/* Structured Agent-to-Agent Message Card */}
-            {structuredRequest && (
-              <div className="space-y-1.5 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
-                  <span>Structured Commerce Payload</span>
-                  <span className="font-mono text-[10px] text-purple-600">A2A Format</span>
-                </div>
-                <div className="bg-slate-900 text-slate-200 p-3 rounded-lg text-[11px] font-mono border border-slate-800 space-y-1 shadow-inner">
-                  <div className="text-purple-400 font-bold">{'// AI BUYER REQUEST'}</div>
-                  <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest.intent}&quot;</div>
-                  <div><span className="text-slate-400">category:</span> &quot;{structuredRequest.category}&quot;</div>
-                  <div><span className="text-slate-400">budget:</span> ₹{formatINR(structuredRequest.budget_inr)}</div>
-                  <div><span className="text-slate-400">use_case:</span> &quot;{structuredRequest.preferences.use_case}&quot;</div>
-                  <div><span className="text-slate-400">priority:</span> &quot;{structuredRequest.preferences.priority}&quot;</div>
-                </div>
+            <div className="space-y-1.5 animate-in fade-in duration-200">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
+                <span>Structured Commerce Payload</span>
+                <span className="font-mono text-[10px] text-purple-600">A2A Format</span>
               </div>
-            )}
+              <div className="bg-slate-900 text-slate-200 p-3 rounded-lg text-[11px] font-mono border border-slate-800 space-y-1 shadow-inner">
+                <div className="text-purple-400 font-bold">{'// AI BUYER REQUEST'}</div>
+                <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest?.intent || `purchase_${effectiveCategory}`}&quot;</div>
+                <div><span className="text-slate-400">category:</span> &quot;{effectiveCategory}&quot;</div>
+                <div><span className="text-slate-400">budget:</span> <span suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span></div>
+                <div><span className="text-slate-400">use_case:</span> &quot;{effectiveUseCase}&quot;</div>
+                <div><span className="text-slate-400">priority:</span> &quot;{effectivePriority}&quot;</div>
+              </div>
+            </div>
 
             {/* Conversation Messages Thread */}
             <div className="border-t border-slate-200 pt-3 pb-4 space-y-2.5 max-h-[300px] overflow-y-auto">

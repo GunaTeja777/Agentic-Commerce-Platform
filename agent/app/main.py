@@ -43,12 +43,61 @@ app.add_middleware(
 )
 
 
+from app.graph.nodes import curate_user_intent_with_llm
+
+class CurationRequest(BaseModel):
+    prompt: str
+    buyer_id: Optional[str] = "demo-ai-buyer"
+
+class CurationResponse(BaseModel):
+    search_query: str
+    category: str
+    budget_inr: Optional[float]
+    use_case: str
+    priority_feature: str
+    intent: str
+    structured_request: Dict[str, Any]
+
+
 @app.get("/health", summary="Agent Service Health Check")
 async def health():
     return {
         "status": "healthy",
         "service": "agentic-growth-agent",
         "backend_url": settings.BACKEND_URL,
+    }
+
+
+@app.post("/agent/curate", response_model=CurationResponse, summary="Curate Buyer Prompt into Structured A2A Payload")
+async def curate_prompt(payload: CurationRequest):
+    """
+    Curate buyer prompt using Hugging Face LLM into structured commerce parameters.
+    """
+    curated = await curate_user_intent_with_llm(payload.prompt)
+    sq = curated.get("search_query", "product")
+    budget = curated.get("max_price")
+    cat = curated.get("category", "General")
+    uc = curated.get("use_case", "work")
+    pf = curated.get("priority_feature", "productivity")
+    intent_val = curated.get("intent", f"purchase_{sq}")
+
+    return {
+        "search_query": sq,
+        "category": cat,
+        "budget_inr": budget,
+        "use_case": uc,
+        "priority_feature": pf,
+        "intent": intent_val,
+        "structured_request": {
+            "buyer_id": payload.buyer_id or "demo-ai-buyer",
+            "intent": intent_val,
+            "category": sq,
+            "budget_inr": budget or 70000.0,
+            "preferences": {
+                "use_case": uc,
+                "priority": pf
+            }
+        }
     }
 
 
