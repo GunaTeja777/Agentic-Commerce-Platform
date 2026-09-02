@@ -152,50 +152,67 @@ async def curate_user_intent_with_llm(buyer_request: str) -> Dict[str, Any]:
             
             parsed = json.loads(content.strip())
             
-            sq = parsed.get("search_query") or "product"
-            mp = parsed.get("max_price")
+            sq = parsed.get("product_type") or parsed.get("search_query") or "product"
+            mp = parsed.get("budget_inr") or parsed.get("max_price")
             cat = parsed.get("category") or "General"
             uc = parsed.get("use_case") or "work"
             pf = parsed.get("priority_feature") or "standard"
 
             return {
+                "product_type": sq,
                 "search_query": sq,
                 "max_price": float(mp) if mp is not None else None,
+                "budget_inr": float(mp) if mp is not None else None,
                 "category": cat,
                 "use_case": uc,
                 "priority_feature": pf,
-                "intent": f"purchase_{sq}"
+                "intent": f"purchase_{sq.replace(' ', '_')}"
             }
         except Exception as e:
-            logger.warning(f"LLM curation error ({e}), falling back to regex parser.")
+            logger.warning(f"Buyer-side LLM curation error ({e}), falling back to dynamic parser.")
     
     return parse_intent_fallback(buyer_request)
 
 
 async def understand_request_node(state: AgentState) -> Dict[str, Any]:
     """
-    Parse buyer's intent, keywords, and budget constraints from request.
-    Uses configured LLM curation, or fallback parser if API key is not supplied.
+    Receive structured A2A commerce request from the Buyer Agent (Hugging Face).
+    The Merchant Agent receives the structured request and treats it as the
+    buyer's already-understood requirements without repeating intent extraction.
     """
     buyer_request = state.get("buyer_request", "")
-    logger.info(f"[Node: UnderstandRequest] Parsing: '{buyer_request}'")
-
-    search_query = state.get("search_query")
-    buyer_budget = state.get("buyer_budget")
     structured_req = state.get("structured_request")
 
     if structured_req:
-        search_query = search_query or structured_req.get("category")
-        buyer_budget = buyer_budget if buyer_budget is not None else structured_req.get("budget_inr")
-
-    if not search_query or buyer_budget is None:
+        # Use buyer-side A2A structured request directly
+        search_query = (
+            structured_req.get("product_type")
+            or structured_req.get("search_query")
+            or structured_req.get("category")
+        )
+        category = structured_req.get("category")
+        buyer_budget = structured_req.get("budget_inr")
+        if buyer_budget is None:
+            buyer_budget = structured_req.get("max_price")
+        logger.info(f"[Node: UnderstandRequest] Received A2A payload: query='{search_query}', category='{category}', budget={buyer_budget}")
+    else:
+        # Fallback to Hugging Face Buyer Agent curation if structured_request was not passed
+        logger.info(f"[Node: UnderstandRequest] Curating buyer request with Hugging Face: '{buyer_request}'")
         curated = await curate_user_intent_with_llm(buyer_request)
-        search_query = search_query or curated.get("search_query")
-        buyer_budget = buyer_budget if buyer_budget is not None else curated.get("max_price")
+        search_query = curated.get("product_type") or curated.get("search_query")
+        category = curated.get("category")
+        buyer_budget = curated.get("budget_inr") or curated.get("max_price")
+        structured_req = {
+            "category": category,
+            "product_type": search_query,
+            "budget_inr": buyer_budget
+        }
 
     return {
         "search_query": search_query,
+        "category": category,
         "buyer_budget": buyer_budget,
+        "structured_request": structured_req,
         "current_step": "understand_request",
         "status": AgentStatus.SEARCHING.value
     }
@@ -203,64 +220,43 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
 
 async def catalog_search_node(state: AgentState) -> Dict[str, Any]:
     """
-    Formulate optimized search parameters via Gemini and query the backend catalog tool.
+    Merchant Agent executes the safe, parameterized Catalog Tool using the structured A2A request.
+    PostgreSQL is the authoritative source of truth.
     """
     search_query = state.get("search_query")
+    category = state.get("category")
     max_price = state.get("buyer_budget")
     merchant_id = state.get("merchant_id", settings.DEFAULT_MERCHANT_ID)
-    buyer_request = state.get("buyer_request", "")
-    structured_req = state.get("structured_request") or {}
 
-    # If Gemini is available, formulate optimized query terms
-    llm = get_llm_instance()
-    search_keywords = [search_query] if search_query else []
-    
-    if llm and buyer_request and not search_keywords:
-        try:
-            from langchain_core.messages import SystemMessage, HumanMessage
-            prompt = (
-                f"Extract the most relevant 1-2 search terms for finding a product in a merchant catalog database.\n"
-                f"Buyer Request: '{buyer_request}'\n"
-                f"Category: {structured_req.get('category')}\n"
-                f"Output ONLY a raw comma-separated list of 1-2 keywords, e.g.: laptop, ultrabook"
-            )
-            resp = await llm.ainvoke([
-                SystemMessage(content="You are a search query formulation expert. Return only comma-separated terms."),
-                HumanMessage(content=prompt)
-            ])
-            terms = [t.strip().strip('"').strip("'") for t in str(resp.content).split(",") if t.strip()]
-            if terms:
-                search_keywords = terms
-        except Exception as e:
-            logger.warning(f"Gemini search term formulation fallback: {e}")
+    logger.info(f"[Node: CatalogSearch] Merchant Agent calling catalog_search(search='{search_query}', category='{category}', max_price={max_price})")
 
-    final_search = " ".join(search_keywords) if search_keywords else search_query
-
-    logger.info(f"[Node: CatalogSearch] Query='{final_search}', max_price={max_price}, merchant_id={merchant_id}")
-
+    # Execute parameterized catalog query against PostgreSQL
     result = await execute_catalog_search(
-        search_query=final_search,
+        search_query=search_query,
+        category=category,
         max_price=max_price,
         merchant_id=merchant_id
     )
 
     products = result.get("products", [])
-    if not products and search_keywords and len(search_keywords) > 1:
-        first_term = search_keywords[0]
+
+    # If narrow category search returned 0 items, search by product keywords across all categories
+    if not products and category:
         result = await execute_catalog_search(
-            search_query=first_term,
+            search_query=search_query,
+            category=None,
             max_price=max_price,
             merchant_id=merchant_id
         )
         products = result.get("products", [])
 
     if not products:
-        logger.warning("[Node: CatalogSearch] No matching products found in catalog.")
+        logger.warning(f"[Node: CatalogSearch] No matching products found in PostgreSQL for '{search_query}'.")
         return {
             "candidate_products": [],
             "status": AgentStatus.BLOCKED.value,
             "current_step": "catalog_search_empty",
-            "final_message": f"I couldn't find any product matching '{final_search or search_query}' within your requirements."
+            "final_message": f"I couldn't find any product matching '{search_query}' within your requirements."
         }
 
     return {

@@ -9,17 +9,19 @@ CORE RULES:
 5. If any tool or service is unavailable, fail closed gracefully without making dangerous assumptions.
 """
 
-USER_INTENT_EXTRACTION_PROMPT = """You are an intelligent intent and entity extraction engine for an AI Agentic Commerce Platform.
-Analyze the buyer's natural language request and dynamically determine the exact product, category, budget, use case, and priorities. Do not limit to any predefined list of products; dynamically understand any product in commerce.
+USER_INTENT_EXTRACTION_PROMPT = """You are the Buyer-Side AI Agent for an Agentic Commerce Platform.
+Your job is to understand the buyer's natural-language shopping request and extract the structured A2A commerce requirements.
 
-Curate the intent into exact JSON:
-- "search_query": The specific product keyword to search in catalog (e.g., "laptop", "mic", "drone", "espresso machine", "mechanical keyboard", "running shoes", "monitor", "headphones", "webcam").
-- "max_price": The maximum budget in INR (numeric float or integer). If no budget is specified, set to null.
-- "category": The high-level product category dynamically inferred from the item (e.g., "Audio", "Laptops", "Peripherals", "Photography", "Appliances", "Footwear", "Office Furniture", "Electronics").
-- "use_case": The intended use context (e.g., "work", "gaming", "streaming", "fitness", "home", "travel", "study", "general").
-- "priority_feature": Key desired feature or preference (e.g., "noise cancellation", "battery life", "wireless", "compact", "ergonomic", "high resolution", "durability", "productivity").
-- "intent": Semantic action (e.g., "purchase_laptop", "purchase_microphone", "purchase_headphones").
+Curate the buyer's intent into exact JSON:
+- "category": Broad product category dynamically inferred (e.g., "Charger", "Laptops", "Audio", "Peripherals", "Mobile", "Electronics").
+- "product_type": Specific item keyword (e.g., "wireless charging pad", "laptop", "usb mic", "ultrabook", "ergonomic mouse").
+- "budget_inr": Maximum budget in INR as a number (e.g., 2000, 60000, 70000). If not specified, set to null.
+- "search_query": Same as product_type for catalog searching.
+- "max_price": Same as budget_inr.
+- "use_case": Primary intended use (e.g., "work", "gaming", "travel", "study", "general").
+- "priority_feature": Key desired preference (e.g., "wireless", "battery", "noise cancellation", "portable").
+- "intent": Semantic action (e.g., "purchase_wireless_charging_pad", "purchase_laptop").
 
 Input: {buyer_request}
-Respond ONLY with the raw JSON object. No other text, no explanations, no markdown formatting.
+Respond ONLY with the raw JSON object. No explanation, no code fences.
 """
