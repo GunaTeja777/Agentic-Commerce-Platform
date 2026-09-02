@@ -67,86 +67,42 @@ def get_llm_instance():
 
 def parse_intent_fallback(text: str) -> Dict[str, Any]:
     """
-    Robust rule-based parser for budget, product keywords, use case, and priorities
-    when LLM is not configured or in unit test mode.
+    Pure dynamic fallback parser for budget and search tokens
+    when LLM is offline or in mock test mode without any hardcoded categories.
     """
     text_lower = text.lower()
     
-    # Extract budget if mentioned (e.g. under 70000, under ₹70,000, budget 65000, 70k)
+    # Extract numerical budget if specified (e.g., under 70000, 60k, ₹50,000)
     budget = None
-    budget_patterns = [
-        r'(?:under|below|max|budget|within|upto|up\s+to)\s*(?:inr|rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)\s*(k)?',
-        r'(?:inr|rs\.?|₹)\s*([\d,]+(?:\.\d+)?)\s*(k)?',
-        r'([\d,]+)\s*(?:inr|rs\.?|₹|rupees)'
-    ]
-    for pattern in budget_patterns:
-        match = re.search(pattern, text_lower)
-        if match:
-            raw_val = match.group(1).replace(',', '')
-            try:
-                val = float(raw_val)
-                if match.lastindex >= 2 and match.group(2) == 'k':
-                    val *= 1000
+    budget_match = re.search(r'(?:under|below|max|budget|within|upto|up\s+to|rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)\s*(k)?\b', text_lower)
+    if budget_match:
+        raw_val = budget_match.group(1).replace(',', '')
+        try:
+            val = float(raw_val)
+            if budget_match.group(2) == 'k':
+                val *= 1000
+            if val > 0:
                 budget = val
-                break
-            except ValueError:
-                pass
+        except ValueError:
+            pass
 
-    # Extract keywords (mic, microphone, laptop, mouse, keyboard, monitor, headphone, audio, bag, accessory, electronics, speaker, camera, chair)
-    categories = [
-        "microphone", "mic", "headphone", "earphone", "headset", "audio",
-        "laptop", "macbook", "notebook", "computer", "pc",
-        "mouse", "keyboard", "trackpad",
-        "monitor", "display", "screen",
-        "speaker", "webcam", "camera", "bag", "backpack", "desk", "chair"
-    ]
-    found_keyword = None
-    for cat in categories:
-        if re.search(r'\b' + re.escape(cat) + r'\b', text_lower):
-            found_keyword = cat
-            break
-            
-    if not found_keyword:
-        # Strip common stopwords
-        words = [w for w in re.findall(r'\b[a-zA-Z0-9_-]+\b', text_lower) 
-                 if w not in ["i", "need", "a", "an", "the", "for", "under", "below", "with", "want", "to", "buy", "find", "get", "in", "rs", "inr", "rupees"]]
-        found_keyword = words[0] if words else "product"
-
-    # Normalize category
-    if found_keyword in ["mic", "microphone", "headphone", "earphone", "headset", "audio", "speaker"]:
-        broad_category = "Audio"
-    elif found_keyword in ["laptop", "macbook", "notebook", "computer", "pc"]:
-        broad_category = "Laptops"
-    elif found_keyword in ["mouse", "keyboard", "trackpad"]:
-        broad_category = "Peripherals"
-    elif found_keyword in ["monitor", "display", "screen"]:
-        broad_category = "Monitors"
-    else:
-        broad_category = "Accessories"
-
-    # Extract use case
-    use_cases = ["gaming", "work", "office", "student", "college", "travel", "creator", "coding", "streaming"]
-    use_case = "work"
-    for uc in use_cases:
-        if uc in text_lower:
-            use_case = uc
-            break
-
-    # Extract priority feature
-    priorities = ["battery", "wireless", "bluetooth", "noise cancellation", "anc", "lightweight", "portable", "clarity", "4k", "rgb", "ergonomic"]
-    priority = "productivity"
-    for p in priorities:
-        if p in text_lower:
-            priority = p
-            break
-
+    # Dynamically extract search term by filtering common grammatical filler words
+    STOPWORDS = {
+        "i", "me", "my", "we", "our", "you", "your", "need", "want", "looking", "for", 
+        "search", "find", "get", "buy", "purchase", "a", "an", "the", "and", "or", "in", 
+        "with", "under", "below", "above", "around", "near", "upto", "budget", "rs", "inr", 
+        "rupees", "please", "can", "good", "best", "cheap", "some"
+    }
+    raw_tokens = [w for w in re.findall(r'\b[a-zA-Z0-9_-]+\b', text_lower) if w not in STOPWORDS and not w.isdigit()]
+    search_keyword = " ".join(raw_tokens[:2]) if raw_tokens else "product"
+    
     return {
-        "search_query": found_keyword,
+        "search_query": search_keyword,
         "max_price": budget,
-        "category": broad_category,
-        "use_case": use_case,
-        "priority_feature": priority,
-        "intent": f"purchase_{found_keyword}"
+        "category": search_keyword.title(),
+        "use_case": "general",
+        "priority_feature": "standard",
+        "intent": f"purchase_{search_keyword.replace(' ', '_')}"
     }
 
 
