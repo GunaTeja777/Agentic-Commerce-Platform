@@ -35,16 +35,16 @@ class GrowthService:
         for rel, target in rows:
             if float(target.price_inr) > float(base_product.price_inr) * 2:
                 if rel.relationship_type == "compatible":
-                    reason = f"Compatible device for {base_product.product_name}"
+                    reason = f"Since you're buying {base_product.product_name}, {target.product_name} is the matching compatible device."
                 else:
-                    reason = f"Designed to be paired with {base_product.product_name}"
+                    reason = f"Since you're buying {base_product.product_name}, {target.product_name} is designed to pair with it."
             else:
                 if rel.relationship_type == "frequently_bought_with":
-                    reason = f"Frequently bought together with {base_product.product_name}"
+                    reason = f"Since you're buying {base_product.product_name}, this {target.product_name} would be a useful addition."
                 elif rel.relationship_type == "compatible":
-                    reason = f"Compatible accessory for {base_product.product_name}"
+                    reason = f"Since you're buying {base_product.product_name}, this {target.product_name} would be a useful addition."
                 else:
-                    reason = f"Recommended item for {base_product.product_name}"
+                    reason = f"Since you're buying {base_product.product_name}, this {target.product_name} would be a useful addition."
 
             recommendations.append({
                 "product_id": target.product_id,

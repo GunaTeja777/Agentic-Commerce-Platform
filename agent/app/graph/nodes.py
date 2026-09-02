@@ -371,9 +371,14 @@ async def growth_recommendation_node(state: AgentState) -> Dict[str, Any]:
         rec_price = top_rec.get("price_inr", 0.0)
         rec_reason = top_rec.get("reason", "Frequently bought together")
 
+        if "Since you're buying" in rec_reason:
+            rec_text = f"{rec_reason} (₹{rec_price:,.2f})"
+        else:
+            rec_text = f"Since you're buying {prod_name}, {rec_name} would be a useful addition for ₹{rec_price:,.2f}."
+
         message = (
             f"I found the **{prod_name}** for ₹{prod_price:,.2f}.\n\n"
-            f"💡 **Recommendation**: {rec_name} is {rec_reason} and costs ₹{rec_price:,.2f}.\n"
+            f"💡 **Recommendation**: {rec_text}\n"
             f"Would you like to add it to your basket?"
         )
 
