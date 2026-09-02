@@ -21,6 +21,8 @@ import {
   Send
 } from 'lucide-react';
 
+import { formatINR } from '@/lib/format';
+
 type AgentStatus =
   | 'idle'
   | 'receiving_request'
@@ -57,12 +59,55 @@ interface StructuredBuyerRequest {
   };
 }
 
+function parsePromptDetails(prompt: string) {
+  let budget = 70000;
+  // Match k shorthand e.g. 60k, 50k, 70k
+  const kMatch = prompt.match(/(?:under|below|budget|max|limit|rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
+  // Match full number e.g. 60,000 or ₹60,000 or 60000
+  const numMatch = prompt.match(/(?:under|below|budget|max|limit|rs\.?|₹)\s*([\d,]+)/i) || prompt.match(/₹\s*([\d,]+)/) || prompt.match(/\b(\d{4,7})\b/);
+  
+  if (kMatch) {
+    budget = parseFloat(kMatch[1]) * 1000;
+  } else if (numMatch) {
+    const cleanNum = parseInt(numMatch[1].replace(/,/g, ''), 10);
+    if (!isNaN(cleanNum) && cleanNum > 0) {
+      budget = cleanNum;
+    }
+  }
+
+  let category = 'laptop';
+  let categoryLabel = 'Laptops';
+  if (/monitor|display|screen/i.test(prompt)) {
+    category = 'monitor';
+    categoryLabel = 'Monitors';
+  } else if (/phone|mobile/i.test(prompt)) {
+    category = 'smartphone';
+    categoryLabel = 'Smartphones';
+  } else if (/mouse|trackpad/i.test(prompt)) {
+    category = 'mouse';
+    categoryLabel = 'Accessories';
+  } else if (/keyboard/i.test(prompt)) {
+    category = 'keyboard';
+    categoryLabel = 'Accessories';
+  } else if (/headphone|audio|earphone/i.test(prompt)) {
+    category = 'headphones';
+    categoryLabel = 'Audio';
+  }
+
+  let useCase = 'work';
+  if (/gaming|game/i.test(prompt)) useCase = 'gaming';
+  else if (/student|college|study/i.test(prompt)) useCase = 'study';
+  else if (/creator|video|edit/i.test(prompt)) useCase = 'creative';
+
+  return { budget, category, categoryLabel, useCase };
+}
+
 export default function LiveDemoPage() {
   const { products, policy, refreshCommerceData, payWithRazorpay, auditEvents } = useCommerce();
 
   // Demo flow states
   const [agentState, setAgentState] = useState<AgentStatus>('idle');
-  const [buyerInput, setBuyerInput] = useState('I need a laptop for work under ₹70,000.');
+  const [buyerInput, setBuyerInput] = useState('I need a laptop for work under ₹60,000.');
   const [structuredRequest, setStructuredRequest] = useState<StructuredBuyerRequest | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   
@@ -79,7 +124,7 @@ export default function LiveDemoPage() {
   
   // Basket & Decision states
   const [buyerDecision, setBuyerDecision] = useState<'pending' | 'accepted' | 'skipped' | null>(null);
-  const [basketItems, setBasketItems] = useState<Array<{ name: string; price: number; isUpsell?: boolean }>>([]);
+  const [basketItems, setBasketItems] = useState<Array<{ name: string; price: number; isUpsell?: boolean; id?: string }>>([]);
   const [policyDecision, setPolicyDecision] = useState<{ allowed: boolean; reason: string; maxLimit: number } | null>(null);
   
   // Order & Payment states
@@ -91,6 +136,12 @@ export default function LiveDemoPage() {
   const [timelineSteps, setTimelineSteps] = useState<Array<{ id: string; label: string; detail?: string; status: 'pending' | 'active' | 'done' | 'blocked' | 'failed' }>>([]);
 
   const auditEndRef = useRef<HTMLDivElement>(null);
+
+  // Dynamic live parsed prompt intent
+  const liveParsed = parsePromptDetails(buyerInput);
+  const effectiveBudget = structuredRequest?.budget_inr || liveParsed.budget;
+  const effectiveCategory = structuredRequest?.category || liveParsed.category;
+  const effectiveUseCase = structuredRequest?.preferences?.use_case || liveParsed.useCase;
 
   // Initialize products fallback
   const laptopItem = products.find(p => p.id === '1' || p.name.includes('NovaBook') || p.name.includes('Laptop')) || {
@@ -133,9 +184,11 @@ export default function LiveDemoPage() {
   };
 
   // Reset Demo to clean state
-  const handleResetDemo = () => {
+  const handleResetDemo = (keepInputText: boolean = false) => {
     setAgentState('idle');
-    setBuyerInput('I need a laptop for work under ₹70,000.');
+    if (!keepInputText) {
+      setBuyerInput('I need a laptop for work under ₹60,000.');
+    }
     setStructuredRequest(null);
     setMessages([]);
     setSelectedProduct(null);
@@ -150,22 +203,24 @@ export default function LiveDemoPage() {
     setTimelineSteps([]);
   };
 
-  // Run the primary happy-path demo flow
+  // Run the primary demo flow dynamically based on user prompt
   const handleStartDemo = async (customPrompt?: string) => {
-    handleResetDemo();
-    setIsProcessing(true);
     const query = customPrompt || buyerInput;
+    handleResetDemo(true);
+    setIsProcessing(true);
     const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+
+    const parsed = parsePromptDetails(query);
 
     // 1. Structured Buyer Request
     const structured: StructuredBuyerRequest = {
       buyer_id: 'demo-ai-buyer',
-      intent: 'purchase',
-      category: 'laptop',
-      budget_inr: 70000,
+      intent: `purchase_${parsed.category}`,
+      category: parsed.category,
+      budget_inr: parsed.budget,
       preferences: {
-        use_case: 'work',
-        priority: 'battery'
+        use_case: parsed.useCase,
+        priority: parsed.useCase === 'gaming' ? 'performance' : 'battery'
       }
     };
     setStructuredRequest(structured);
@@ -183,41 +238,55 @@ export default function LiveDemoPage() {
     // Update timeline & agent state: Searching
     setAgentState('searching_catalog');
     setTimelineSteps([
-      { id: 't1', label: 'Request received', detail: 'Parsed buyer intent & constraints', status: 'done' },
-      { id: 't2', label: 'Catalog Tool', detail: 'Searching laptops under ₹70,000', status: 'active' }
+      { id: 't1', label: 'Request received', detail: `Parsed intent: ${parsed.categoryLabel} for ${parsed.useCase}, budget ₹${formatINR(parsed.budget)}`, status: 'done' },
+      { id: 't2', label: 'Catalog Tool', detail: `Searching ${parsed.categoryLabel.toLowerCase()} under ₹${formatINR(parsed.budget)}`, status: 'active' }
     ]);
 
     await new Promise(r => setTimeout(r, 600));
 
-    // 2. Select product from catalog
-    setSelectedProduct(laptopItem);
+    // 2. Select matching product from catalog
+    let matchedItem = laptopItem;
+    if (parsed.category === 'monitor') {
+      matchedItem = monitorItem;
+    } else {
+      const found = products.find(p => 
+        (p.category.toLowerCase().includes(parsed.category) || p.name.toLowerCase().includes(parsed.category)) &&
+        p.price <= parsed.budget
+      ) || products.find(p => 
+        p.category.toLowerCase().includes(parsed.category) || p.name.toLowerCase().includes(parsed.category)
+      );
+      if (found) matchedItem = found;
+    }
+
+    setSelectedProduct(matchedItem);
     setAgentState('product_selected');
     setTimelineSteps(prev => [
       ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-      { id: 't3', label: 'Product selected', detail: `${laptopItem.name} — ₹${laptopItem.price.toLocaleString()}`, status: 'done' },
+      { id: 't3', label: 'Product selected', detail: `${matchedItem.name} — ₹${formatINR(matchedItem.price)}`, status: 'done' },
       { id: 't4', label: 'Growth Tool', detail: 'Checking data-backed merchant relationships', status: 'active' }
     ]);
 
     await new Promise(r => setTimeout(r, 600));
 
     // 3. Growth recommendation
+    const recItem = matchedItem.id === monitorItem.id ? mouseItem : mouseItem;
     setRecommendation({
-      id: mouseItem.id,
-      name: mouseItem.name,
-      price: mouseItem.price,
-      reason: 'Frequently bought with this laptop',
+      id: recItem.id,
+      name: recItem.name,
+      price: recItem.price,
+      reason: `Frequently bought with ${matchedItem.name}`,
       source: 'Merchant catalog relationship',
-      stock: mouseItem.stock
+      stock: recItem.stock
     });
 
     setAgentState('awaiting_buyer_approval');
     setTimelineSteps(prev => [
       ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
-      { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${mouseItem.name} (+₹${mouseItem.price.toLocaleString()})`, status: 'active' }
+      { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recItem.name} (+₹${formatINR(recItem.price)})`, status: 'active' }
     ]);
 
     // Initial base basket
-    setBasketItems([{ name: laptopItem.name, price: laptopItem.price, isUpsell: false }]);
+    setBasketItems([{ name: matchedItem.name, price: matchedItem.price, isUpsell: false, id: matchedItem.id }]);
 
     setMessages(prev => [
       ...prev,
@@ -225,14 +294,14 @@ export default function LiveDemoPage() {
         id: 'msg-2',
         sender: 'merchant',
         senderLabel: 'Merchant AI Agent',
-        content: `I found the ${laptopItem.name} for ₹${laptopItem.price.toLocaleString()}. It matches your work requirement and is currently in stock (12 available).`,
+        content: `I found the ${matchedItem.name} for ₹${formatINR(matchedItem.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matchedItem.stock} available.`,
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
       },
       {
         id: 'msg-3',
         sender: 'merchant',
         senderLabel: 'Merchant AI Agent',
-        content: `A compatible ${mouseItem.name} is frequently bought with this laptop and is available for ₹${mouseItem.price.toLocaleString()}. Would you like to add it?`,
+        content: `A compatible ${recItem.name} is frequently bought with this product and is available for ₹${formatINR(recItem.price)}. Would you like to add it?`,
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
       }
     ]);
@@ -260,23 +329,26 @@ export default function LiveDemoPage() {
     ]);
 
     // Update basket
+    const baseProd = selectedProduct || laptopItem;
     const updatedBasket = [
-      { name: laptopItem.name, price: laptopItem.price, isUpsell: false }
+      { name: baseProd.name, price: baseProd.price, isUpsell: false, id: baseProd.id }
     ];
     if (accepted && recommendation) {
       updatedBasket.push({
         name: recommendation.name,
         price: recommendation.price,
-        isUpsell: true
+        isUpsell: true,
+        id: recommendation.id
       });
     }
     setBasketItems(updatedBasket);
 
     // Timeline update: Basket updated -> Checking Policy
     setAgentState('checking_policy');
+    const recName = recommendation?.name || mouseItem.name;
     setTimelineSteps(prev => [
       ...prev.map(s => s.id === 't5' ? { ...s, status: 'done' as const } : s),
-      { id: 't6', label: 'Basket updated', detail: accepted ? `Added ${mouseItem.name}` : 'Upsell skipped', status: 'done' },
+      { id: 't6', label: 'Basket updated', detail: accepted ? `Added ${recName}` : 'Upsell skipped', status: 'done' },
       { id: 't7', label: 'Policy Tool', detail: 'Checking transaction limit', status: 'active' }
     ]);
 
@@ -287,10 +359,10 @@ export default function LiveDemoPage() {
     // Call real backend Policy Check / Order creation
     try {
       const orderPayloadItems = [
-        { product_id: Number(laptopItem.id), quantity: 1 }
+        { product_id: Number(baseProd.id) || 1001, quantity: 1 }
       ];
-      if (accepted) {
-        orderPayloadItems.push({ product_id: Number(mouseItem.id), quantity: 1 });
+      if (accepted && recommendation) {
+        orderPayloadItems.push({ product_id: Number(recommendation.id) || 1021, quantity: 1 });
       }
 
       // 1. Create Order & Check Policy in backend
@@ -300,7 +372,7 @@ export default function LiveDemoPage() {
       const isPolicyAllowed = orderRes.policy_allowed;
       setPolicyDecision({
         allowed: isPolicyAllowed,
-        reason: orderRes.policy_reason || `Transaction is within the merchant's maximum transaction limit of ₹${policy.maxTransactionLimit.toLocaleString()}.`,
+        reason: orderRes.policy_reason || `Transaction is within the merchant's maximum transaction limit of ₹${formatINR(policy.maxTransactionLimit)}.`,
         maxLimit: policy.maxTransactionLimit
       });
 
@@ -308,7 +380,7 @@ export default function LiveDemoPage() {
         setAgentState('ready_for_payment');
         setTimelineSteps(prev => [
           ...prev.map(s => s.id === 't7' ? { ...s, status: 'done' as const } : s),
-          { id: 't8', label: 'Policy approved', detail: `₹${totalAmount.toLocaleString()} <= ₹${policy.maxTransactionLimit.toLocaleString()}`, status: 'done' },
+          { id: 't8', label: 'Policy approved', detail: `₹${formatINR(totalAmount)} <= ₹${formatINR(policy.maxTransactionLimit)}`, status: 'done' },
           { id: 't9', label: 'Ready for payment', detail: `Created payable order ORD-${orderRes.order_id}`, status: 'active' }
         ]);
 
@@ -318,7 +390,7 @@ export default function LiveDemoPage() {
             id: `msg-${Date.now() + 1}`,
             sender: 'merchant',
             senderLabel: 'Merchant AI Agent',
-            content: `Your basket is ₹${totalAmount.toLocaleString()}. The merchant policy allows transactions up to ₹${policy.maxTransactionLimit.toLocaleString()}. Your order (ORD-${orderRes.order_id}) is ready for payment.`,
+            content: `Your basket is ₹${formatINR(totalAmount)}. The merchant policy allows transactions up to ₹${formatINR(policy.maxTransactionLimit)}. Your order (ORD-${orderRes.order_id}) is ready for payment.`,
             timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
           }
         ]);
@@ -338,14 +410,14 @@ export default function LiveDemoPage() {
         allowed: isAllowed,
         reason: isAllowed
           ? "Transaction is within the merchant's maximum transaction limit."
-          : `Total ₹${totalAmount.toLocaleString()} exceeds ₹${policy.maxTransactionLimit.toLocaleString()} limit.`,
+          : `Total ₹${formatINR(totalAmount)} exceeds ₹${formatINR(policy.maxTransactionLimit)} limit.`,
         maxLimit: policy.maxTransactionLimit
       });
       if (isAllowed) {
         setAgentState('ready_for_payment');
         setTimelineSteps(prev => [
           ...prev.map(s => s.id === 't7' ? { ...s, status: 'done' as const } : s),
-          { id: 't8', label: 'Policy approved', detail: `₹${totalAmount.toLocaleString()} <= ₹${policy.maxTransactionLimit.toLocaleString()}`, status: 'done' },
+          { id: 't8', label: 'Policy approved', detail: `₹${formatINR(totalAmount)} <= ₹${formatINR(policy.maxTransactionLimit)}`, status: 'done' },
           { id: 't9', label: 'Ready for payment', detail: 'Ready for Razorpay checkout', status: 'active' }
         ]);
       }
@@ -579,7 +651,7 @@ export default function LiveDemoPage() {
   };
 
   const calculatedTotal = basketItems.reduce((acc, curr) => acc + curr.price, 0);
-  const isBasketWithinBudget = calculatedTotal <= 70000;
+  const isBasketWithinBudget = calculatedTotal <= effectiveBudget;
 
   return (
     <div className="space-y-6 pb-12">
@@ -615,7 +687,7 @@ export default function LiveDemoPage() {
           <button
             onClick={handleRunBlockedScenario}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-xs transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold text-xs transition-colors disabled:opacity-50"
             title="Demonstrate policy gate blocking ₹77,000 basket (0 Razorpay calls)"
           >
             <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
@@ -625,7 +697,7 @@ export default function LiveDemoPage() {
           <button
             onClick={handleSimulatePaymentFailure}
             disabled={isProcessing || !currentOrderId}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs transition-colors disabled:opacity-40"
             title="Simulate a declined payment"
           >
             <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -633,7 +705,7 @@ export default function LiveDemoPage() {
           </button>
 
           <button
-            onClick={handleResetDemo}
+            onClick={() => handleResetDemo(false)}
             disabled={isProcessing}
             className="flex items-center gap-1 px-3 py-2 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-medium text-xs transition-colors"
           >
@@ -674,11 +746,11 @@ export default function LiveDemoPage() {
               </div>
               <div className="flex justify-between items-center text-slate-600">
                 <span>Intent:</span>
-                <span className="font-medium text-purple-950 font-mono text-[11px]">&quot;Buy a laptop for work&quot;</span>
+                <span className="font-medium text-purple-950 font-mono text-[11px]">&quot;Buy {effectiveCategory} for {effectiveUseCase}&quot;</span>
               </div>
               <div className="flex justify-between items-center text-slate-600">
                 <span>Budget:</span>
-                <span className="font-mono font-bold text-slate-900 text-xs">₹70,000</span>
+                <span className="font-mono font-bold text-slate-900 text-xs" suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span>
               </div>
               <div className="border-t border-purple-200/60 pt-2 space-y-1">
                 <span className="text-[11px] font-semibold text-slate-600 block">Preferences:</span>
@@ -687,7 +759,7 @@ export default function LiveDemoPage() {
                     Good battery
                   </span>
                   <span className="px-2 py-0.5 bg-white text-purple-900 border border-purple-200 rounded text-[10px]">
-                    Suitable for work
+                    Suitable for {effectiveUseCase}
                   </span>
                 </div>
               </div>
@@ -733,7 +805,7 @@ export default function LiveDemoPage() {
                   <div className="text-purple-400 font-bold">{'// AI BUYER REQUEST'}</div>
                   <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest.intent}&quot;</div>
                   <div><span className="text-slate-400">category:</span> &quot;{structuredRequest.category}&quot;</div>
-                  <div><span className="text-slate-400">budget:</span> ₹{structuredRequest.budget_inr.toLocaleString()}</div>
+                  <div><span className="text-slate-400">budget:</span> ₹{formatINR(structuredRequest.budget_inr)}</div>
                   <div><span className="text-slate-400">use_case:</span> &quot;{structuredRequest.preferences.use_case}&quot;</div>
                   <div><span className="text-slate-400">priority:</span> &quot;{structuredRequest.preferences.priority}&quot;</div>
                 </div>
@@ -985,8 +1057,8 @@ export default function LiveDemoPage() {
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-3.5 space-y-2 text-xs">
                 {basketItems.length === 0 ? (
                   <div className="flex justify-between text-slate-600">
-                    <span>{laptopItem.name}</span>
-                    <span className="font-mono font-medium">₹{laptopItem.price.toLocaleString()}</span>
+                    <span>{selectedProduct?.name || laptopItem.name}</span>
+                    <span className="font-mono font-medium" suppressHydrationWarning>₹{formatINR(selectedProduct?.price || laptopItem.price)}</span>
                   </div>
                 ) : (
                   basketItems.map((item, idx) => (
@@ -999,7 +1071,7 @@ export default function LiveDemoPage() {
                           </span>
                         )}
                       </div>
-                      <span className="font-mono font-bold">₹{item.price.toLocaleString()}</span>
+                      <span className="font-mono font-bold" suppressHydrationWarning>₹{formatINR(item.price)}</span>
                     </div>
                   ))
                 )}
@@ -1007,22 +1079,22 @@ export default function LiveDemoPage() {
                 <div className="border-t border-slate-200 pt-2 space-y-1 text-xs">
                   <div className="flex justify-between text-slate-500">
                     <span>Subtotal:</span>
-                    <span className="font-mono font-bold text-slate-900">₹{calculatedTotal.toLocaleString()}</span>
+                    <span className="font-mono font-bold text-slate-900" suppressHydrationWarning>₹{formatINR(calculatedTotal)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>Buyer Budget:</span>
-                    <span className="font-mono">₹70,000</span>
+                    <span className="font-mono font-bold text-slate-700" suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
                     <span>Policy Limit:</span>
-                    <span className="font-mono">₹70,000</span>
+                    <span className="font-mono font-bold text-slate-700" suppressHydrationWarning>₹{formatINR(policy.maxTransactionLimit)}</span>
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
                   <span className="font-bold text-slate-900">Total Calculated:</span>
-                  <span className="font-mono font-extrabold text-sm text-slate-900">
-                    ₹{calculatedTotal.toLocaleString()}
+                  <span className="font-mono font-extrabold text-sm text-slate-900" suppressHydrationWarning>
+                    ₹{formatINR(calculatedTotal)}
                   </span>
                 </div>
 
