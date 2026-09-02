@@ -252,7 +252,16 @@ export default function LiveDemoPage() {
     try {
       const curated = await apiService.curatePrompt(query, 'demo-ai-buyer');
       if (curated && curated.structured_request) {
-        structured = curated.structured_request;
+        structured = {
+          buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
+          intent: curated.structured_request.intent || `purchase_${parsed.category}`,
+          category: curated.structured_request.category || parsed.category,
+          budget_inr: Number(curated.structured_request.budget_inr) || parsed.budget,
+          preferences: {
+            use_case: curated.structured_request.preferences?.use_case || parsed.useCase,
+            priority: curated.structured_request.preferences?.priority || parsed.priority
+          }
+        };
       }
     } catch (e) {
       console.warn('Could not curate via LLM, using parsed local fallback:', e);

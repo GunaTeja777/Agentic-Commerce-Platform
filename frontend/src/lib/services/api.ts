@@ -152,6 +152,27 @@ export interface AgentChatResponse {
   next_action?: string;
 }
 
+export interface StructuredBuyerPayload {
+  buyer_id?: string;
+  intent: string;
+  category: string;
+  budget_inr: number;
+  preferences?: {
+    use_case?: string;
+    priority?: string;
+  };
+}
+
+export interface CuratedPromptResult {
+  search_query: string;
+  category: string;
+  budget_inr?: number;
+  use_case: string;
+  priority_feature: string;
+  intent: string;
+  structured_request: StructuredBuyerPayload;
+}
+
 export const apiService = {
   async chatAgent(payload: {
     message?: string;
@@ -160,7 +181,7 @@ export const apiService = {
     buyer_decision?: string;
     context?: Record<string, unknown>;
     request_id?: string;
-    structured_request?: any;
+    structured_request?: StructuredBuyerPayload;
   }): Promise<AgentChatResponse> {
     return fetchJson<AgentChatResponse>(`${AGENT_BASE}/agent/chat`, {
       method: 'POST',
@@ -347,17 +368,9 @@ export const apiService = {
     return INITIAL_TRANSACTIONS;
   },
 
-  async curatePrompt(prompt: string, buyerId: string = 'demo-ai-buyer'): Promise<{
-    search_query: string;
-    category: string;
-    budget_inr?: number;
-    use_case: string;
-    priority_feature: string;
-    intent: string;
-    structured_request: any;
-  }> {
+  async curatePrompt(prompt: string, buyerId: string = 'demo-ai-buyer'): Promise<CuratedPromptResult> {
     try {
-      const res = await fetchJson<any>(`http://localhost:8001/agent/curate`, {
+      const res = await fetchJson<CuratedPromptResult>(`http://localhost:8001/agent/curate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, buyer_id: buyerId })
