@@ -104,6 +104,11 @@ async def understand_request_node(state: AgentState) -> Dict[str, Any]:
 
     search_query = state.get("search_query")
     buyer_budget = state.get("buyer_budget")
+    structured_req = state.get("structured_request")
+
+    if structured_req:
+        search_query = search_query or structured_req.get("category")
+        buyer_budget = buyer_budget if buyer_budget is not None else structured_req.get("budget_inr")
 
     if not search_query or buyer_budget is None:
         llm = get_llm_instance()
@@ -311,9 +316,10 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
     """
     merchant_id = state.get("merchant_id", settings.DEFAULT_MERCHANT_ID)
     total = state.get("total", 0.0)
+    request_id = state.get("request_id")
 
-    logger.info(f"[Node: PolicyCheck] Checking merchant_id={merchant_id}, amount_inr={total}")
-    result = await execute_policy_check(merchant_id=merchant_id, amount_inr=total)
+    logger.info(f"[Node: PolicyCheck] Checking merchant_id={merchant_id}, amount_inr={total}, request_id={request_id}")
+    result = await execute_policy_check(merchant_id=merchant_id, amount_inr=total, request_id=request_id)
 
     is_error = result.get("policy_service_error", False)
     is_allowed = result.get("allowed", False)
@@ -322,8 +328,8 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
 
     if is_error:
         # FAIL CLOSED
-        msg = f"I couldn't verify the transaction policy, so I cannot proceed with the purchase. ({reason})"
-        logger.error(f"[Node: PolicyCheck] Policy Service unavailable: {reason}")
+        msg = f"Payment authorization could not be completed because the merchant policy service is unavailable. ({reason})"
+        logger.error(f"[Node: PolicyCheck] Policy Service unavailable (FAIL-CLOSED): {reason}")
         return {
             "policy_result": result,
             "status": AgentStatus.ERROR.value,
@@ -334,7 +340,7 @@ async def policy_check_node(state: AgentState) -> Dict[str, Any]:
 
     if not is_allowed:
         # POLICY BLOCKED - Fail closed, strictly refuse payment
-        msg = f"Purchase blocked because the total of ₹{total:,.2f} exceeds the merchant's policy limit (Limit: ₹{max_limit:,.2f}). Reason: {reason}"
+        msg = f"Purchase blocked: Total of ₹{total:,.2f} exceeds authorized spending limit (Policy Limit: ₹{max_limit:,.2f}). Reason: {reason}. Payment blocked before payment provider call."
         logger.warning(f"[Node: PolicyCheck] Blocked by policy engine: {reason}")
         return {
             "policy_result": result,
@@ -365,20 +371,23 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
         return {
             "status": AgentStatus.BLOCKED.value,
             "current_step": "payment_blocked_by_policy",
-            "final_message": "Payment initiation was blocked by the policy gate."
+            "final_message": "Payment initiation was blocked by the policy gate.",
+            "razorpay_call_count": 0
         }
 
     merchant_id = state.get("merchant_id", settings.DEFAULT_MERCHANT_ID)
     buyer_id = state.get("buyer_id", "demo-ai-buyer")
     cart_items = state.get("cart_items", [])
     total = state.get("total", 0.0)
+    request_id = state.get("request_id")
 
     try:
         # 1. Create Order in PostgreSQL
         order_res = await backend_client.create_order(
             merchant_id=merchant_id,
             buyer_id=buyer_id,
-            items=cart_items
+            items=cart_items,
+            request_id=request_id
         )
         order_id = order_res.get("order_id")
         logger.info(f"[Node: PaymentInitiation] DB Order #{order_id} created successfully")
@@ -387,7 +396,8 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
         payment_data = await execute_payment_initiation(
             merchant_id=merchant_id,
             order_id=order_id,
-            policy_allowed=True
+            policy_allowed=True,
+            request_id=request_id
         )
 
         razorpay_order_id = payment_data.get("razorpay_order_id")
@@ -406,14 +416,15 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
             "payment_status": "ready_for_checkout",
             "status": AgentStatus.READY_FOR_PAYMENT.value,
             "current_step": "payment_order_created",
-            "final_message": msg
+            "final_message": msg,
+            "razorpay_call_count": 1
         }
     except Exception as e:
         logger.error(f"[Node: PaymentInitiation] Error preparing payment: {e}")
         return {
             "status": AgentStatus.ERROR.value,
             "current_step": "payment_preparation_failed",
-            "final_message": f"Payment preparation encountered an error: {str(e)}",
+            "final_message": f"Payment authorization could not be completed: {str(e)}",
             "error_message": str(e)
         }
 
@@ -426,13 +437,13 @@ async def policy_blocked_node(state: AgentState) -> Dict[str, Any]:
     total = state.get("total", 0.0)
     policy_res = state.get("policy_result") or {}
     max_limit = policy_res.get("max_transaction_inr", 70000.0)
-    reason = policy_res.get("reason", "Transaction exceeds maximum transaction limit")
+    reason = policy_res.get("reason", "Transaction exceeds authorized limit")
 
     msg = (
-        f"✕ **Purchase Blocked**: I can't proceed because the transaction total of "
-        f"₹{total:,.2f} exceeds the merchant's ₹{max_limit:,.2f} limit.\n"
+        f"✕ **Purchase Blocked**: ₹{total:,.2f} exceeds buyer authorization limit of ₹{max_limit:,.2f}.\n"
         f"**Reason**: {reason}\n\n"
-        f"**Payment Status**: Not attempted (Razorpay was NOT called)."
+        f"**Payment Service**: NOT CALLED\n"
+        f"**Razorpay**: NOT CALLED (0 API calls)"
     )
 
     return {
@@ -440,5 +451,6 @@ async def policy_blocked_node(state: AgentState) -> Dict[str, Any]:
         "payment_status": "blocked",
         "payment_info": None,
         "current_step": "policy_blocked_final",
-        "final_message": msg
+        "final_message": msg,
+        "razorpay_call_count": 0
     }
