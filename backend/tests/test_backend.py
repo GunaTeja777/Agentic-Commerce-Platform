@@ -103,7 +103,7 @@ async def test_order_rejects_insufficient_stock(async_client):
     }
     response = await async_client.post("/api/orders", json=payload)
     assert response.status_code == 400
-    assert "Insufficient stock" in response.json()["detail"]
+    assert "Insufficient stock" in str(response.json()["detail"])
 
 @pytest.mark.asyncio
 async def test_blocked_transaction_does_not_create_payable(async_client):

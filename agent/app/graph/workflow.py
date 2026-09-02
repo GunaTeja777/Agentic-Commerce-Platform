@@ -110,7 +110,9 @@ async def run_agent_workflow(
     merchant_id: int = 1,
     buyer_id: str = "demo-ai-buyer",
     buyer_decision: Optional[str] = None,
-    context: Optional[Dict[str, Any]] = None
+    context: Optional[Dict[str, Any]] = None,
+    request_id: Optional[str] = None,
+    structured_request: Optional[Dict[str, Any]] = None
 ) -> AgentState:
     """
     Convenience function to run or resume the LangGraph workflow.
@@ -121,6 +123,8 @@ async def run_agent_workflow(
         "merchant_id": merchant_id,
         "buyer_id": buyer_id,
         "buyer_decision": buyer_decision,
+        "request_id": request_id,
+        "structured_request": structured_request,
         "candidate_products": [],
         "recommendations": [],
         "cart_items": [],
@@ -144,6 +148,10 @@ async def run_agent_workflow(
         initial_state["buyer_request"] = buyer_request
     if merchant_id:
         initial_state["merchant_id"] = merchant_id
+    if request_id is not None:
+        initial_state["request_id"] = request_id
+    if structured_request is not None:
+        initial_state["structured_request"] = structured_request
 
     final_state = await agent_graph.ainvoke(initial_state)
     return final_state
