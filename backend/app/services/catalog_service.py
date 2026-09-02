@@ -25,7 +25,16 @@ class CatalogService:
         if category:
             query = query.where(func.lower(Product.category) == category.lower())
         if search:
-            search_terms = [t.strip().lower() for t in search.split() if len(t.strip()) > 1]
+            import re
+            raw_tokens = re.findall(r'[A-Za-z0-9]+', search)
+            expanded_tokens = []
+            for tok in raw_tokens:
+                sub_toks = re.findall(r'[A-Z]?[a-z]+|[A-Z]+(?=[A-Z][a-z]|\d|\W|$)|\d+', tok)
+                if len(sub_toks) > 1:
+                    expanded_tokens.extend([s.lower() for s in sub_toks if len(s) > 2])
+                expanded_tokens.append(tok.lower())
+            
+            search_terms = list(dict.fromkeys([t for t in expanded_tokens if len(t) > 1]))
             if not search_terms:
                 search_terms = [search.lower()]
             search_clauses = []

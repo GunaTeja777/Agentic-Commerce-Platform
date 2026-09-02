@@ -285,28 +285,47 @@ async def select_product_node(state: AgentState) -> Dict[str, Any]:
     buyer_request = state.get("buyer_request", "")
     llm = get_llm_instance()
 
-    selected = candidates[0]
-    if len(candidates) > 1 and llm and buyer_request:
+    # Pre-rank candidates based on title & category keyword match relevance
+    req_tokens = set(re.findall(r'\b[a-zA-Z0-9]+\b', buyer_request.lower()))
+    def score_candidate(c):
+        p_name = str(c.get("product_name", "")).lower()
+        p_cat = str(c.get("category", "")).lower()
+        p_desc = str(c.get("description", "")).lower()
+        score = 0
+        for w in req_tokens:
+            if len(w) > 2 and w not in ["the", "and", "for", "with", "want", "need", "buy"]:
+                if w in p_name:
+                    score += 15
+                if w in p_cat:
+                    score += 5
+                if w in p_desc:
+                    score += 1
+        return score
+
+    sorted_candidates = sorted(candidates, key=score_candidate, reverse=True)
+    selected = sorted_candidates[0]
+
+    if len(sorted_candidates) > 1 and llm and buyer_request:
         try:
             from langchain_core.messages import SystemMessage, HumanMessage
             summary_list = [
-                f"ID {c.get('product_id')}: {c.get('product_name')} - Price: ₹{c.get('price_inr')}, Rating: {c.get('rating', 4.5)}, Description: {c.get('description', '')}"
-                for c in candidates[:5]
+                f"ID {c.get('product_id')}: {c.get('product_name')} - Price: ₹{c.get('price_inr')}, Rating: {c.get('rating', 4.5)}, Category: {c.get('category')}, Description: {c.get('description', '')}"
+                for c in sorted_candidates[:5]
             ]
             prompt = (
-                f"Select the best product matching the buyer's request.\n"
+                f"Select the single best product matching the buyer's request.\n"
                 f"Buyer Request: '{buyer_request}'\n\n"
                 f"Available Products:\n" + "\n".join(summary_list) + "\n\n"
                 f"Return ONLY a JSON object: {{\"selected_product_id\": <number>}}"
             )
             resp = await llm.ainvoke([
-                SystemMessage(content="You are a product matching expert. Return only JSON with selected_product_id."),
+                SystemMessage(content="You are a commerce product matching expert. Return only JSON with selected_product_id."),
                 HumanMessage(content=prompt)
             ])
             match = re.search(r'\{\s*"selected_product_id"\s*:\s*(\d+)\s*\}', str(resp.content))
             if match:
                 chosen_id = int(match.group(1))
-                found = next((c for c in candidates if c.get("product_id") == chosen_id), None)
+                found = next((c for c in sorted_candidates if c.get("product_id") == chosen_id), None)
                 if found:
                     selected = found
         except Exception as e:
@@ -340,12 +359,21 @@ async def growth_recommendation_node(state: AgentState) -> Dict[str, Any]:
 
     # If recommendations exist and buyer hasn't made a decision yet
     if recommendations and (not buyer_decision or buyer_decision == "pending"):
-        top_rec = recommendations[0]
+        prod_price = selected.get("price_inr", 0.0)
+        prod_name = selected.get("product_name")
+
+        # Prefer sensible add-on accessories (less expensive than main product or proportional)
+        ranked_recs = sorted(
+            recommendations,
+            key=lambda r: (
+                0 if r.get("price_inr", 0) <= prod_price * 1.2 else 1,
+                r.get("price_inr", 0)
+            )
+        )
+        top_rec = ranked_recs[0]
         rec_name = top_rec.get("name") or top_rec.get("product_name")
         rec_price = top_rec.get("price_inr", 0.0)
         rec_reason = top_rec.get("reason", "Frequently bought together")
-        prod_name = selected.get("product_name")
-        prod_price = selected.get("price_inr", 0.0)
 
         message = (
             f"I found the **{prod_name}** for ₹{prod_price:,.2f}.\n\n"
@@ -354,7 +382,7 @@ async def growth_recommendation_node(state: AgentState) -> Dict[str, Any]:
         )
 
         return {
-            "recommendations": recommendations,
+            "recommendations": ranked_recs,
             "status": AgentStatus.AWAITING_BUYER_APPROVAL.value,
             "current_step": "awaiting_buyer_decision",
             "final_message": message
