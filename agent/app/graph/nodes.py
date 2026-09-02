@@ -15,10 +15,29 @@ from app.services.backend_client import backend_client, BackendClientError
 logger = logging.getLogger("agent.graph.nodes")
 
 
+def get_curation_llm_instance():
+    """
+    Instantiate Hugging Face Inference LLM for query curation.
+    """
+    curation_key = settings.effective_curation_key
+    if not curation_key:
+        return None
+    try:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            base_url="https://api-inference.huggingface.co/v1",
+            api_key=curation_key,
+            model=settings.CURATION_MODEL or "meta-llama/Llama-3.2-3B-Instruct",
+            temperature=0.1
+        )
+    except Exception as e:
+        logger.warning(f"Could not initialize Hugging Face Curation LLM: {e}")
+        return None
+
+
 def get_llm_instance():
     """
-    Instantiate LLM (Gemini or OpenAI) based on environment configuration.
-    Never uses hardcoded keys.
+    Instantiate main agent LLM (Google Gemini) for LangGraph StateGraph orchestration.
     """
     api_key = settings.effective_api_key
     if not api_key:
@@ -108,10 +127,10 @@ def parse_intent_fallback(text: str) -> Dict[str, Any]:
 
 async def curate_user_intent_with_llm(buyer_request: str) -> Dict[str, Any]:
     """
-    Curate the buyer's query using configured LLM (Hugging Face / Gemini / etc.)
-    with automatic JSON parsing and robust fallback.
+    Curate the buyer's query using Hugging Face Llama 3.2 Curation LLM
+    with automatic JSON parsing and robust dynamic fallback.
     """
-    llm = get_llm_instance()
+    llm = get_curation_llm_instance() or get_llm_instance()
     if llm:
         try:
             from langchain_core.messages import SystemMessage, HumanMessage
