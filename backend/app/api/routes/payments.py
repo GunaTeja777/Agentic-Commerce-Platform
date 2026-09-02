@@ -35,7 +35,11 @@ async def create_payment(
     - Server verifies order existence and calculates amount from DB.
     - Re-evaluates Policy Engine before calling Razorpay.
     """
-    res = await PaymentService.create_payment_order(db=db, order_id=payload.order_id)
+    res = await PaymentService.create_payment_order(
+        db=db,
+        order_id=payload.order_id,
+        request_id=payload.request_id
+    )
     return PaymentCreateResponse(**res)
 
 
@@ -57,7 +61,8 @@ async def verify_payment(
         order_id=payload.order_id,
         razorpay_order_id=payload.razorpay_order_id,
         razorpay_payment_id=payload.razorpay_payment_id,
-        razorpay_signature=payload.razorpay_signature
+        razorpay_signature=payload.razorpay_signature,
+        request_id=payload.request_id
     )
     return PaymentVerifyResponse(**res)
 
@@ -78,7 +83,8 @@ async def fail_payment(
         db=db,
         order_id=payload.order_id,
         reason=payload.reason or "Payment failed or cancelled by user",
-        error_code=payload.error_code
+        error_code=payload.error_code,
+        request_id=payload.request_id
     )
     return PaymentFailureResponse(**res)
 

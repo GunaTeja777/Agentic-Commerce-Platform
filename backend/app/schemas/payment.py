@@ -9,6 +9,7 @@ class PaymentCreateRequest(BaseModel):
     Amount is strictly calculated server-side from PostgreSQL order data.
     """
     order_id: int = Field(..., description="ID of the internal order to create payment for")
+    request_id: Optional[str] = Field(default=None, description="Traceable correlation / request identifier")
 
 
 class PaymentCreateResponse(BaseModel):
@@ -21,6 +22,7 @@ class PaymentCreateResponse(BaseModel):
     key_id: str
     status: str
     receipt: str
+    request_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,6 +36,7 @@ class PaymentVerifyRequest(BaseModel):
     razorpay_order_id: str
     razorpay_payment_id: str
     razorpay_signature: str
+    request_id: Optional[str] = None
 
 
 class PaymentVerifyResponse(BaseModel):
@@ -44,6 +47,7 @@ class PaymentVerifyResponse(BaseModel):
     amount_inr: float
     razorpay_payment_id: str
     message: str
+    request_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -53,6 +57,7 @@ class PaymentFailureRequest(BaseModel):
     reason: Optional[str] = "Payment cancelled or failed by user"
     error_code: Optional[str] = None
     error_description: Optional[str] = None
+    request_id: Optional[str] = None
 
 
 class PaymentFailureResponse(BaseModel):
@@ -60,3 +65,5 @@ class PaymentFailureResponse(BaseModel):
     status: str
     order_id: int
     reason: str
+    error_code: Optional[str] = None
+    request_id: Optional[str] = None

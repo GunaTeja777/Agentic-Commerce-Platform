@@ -25,7 +25,11 @@ class PaymentService:
         return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
     @staticmethod
-    async def create_payment_order(db: AsyncSession, order_id: int) -> Dict[str, Any]:
+    async def create_payment_order(
+        db: AsyncSession,
+        order_id: int,
+        request_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Create a Razorpay Test Mode Order for an internal order.
         
@@ -46,21 +50,30 @@ class PaymentService:
 
         if not order:
             logger.error(f"[PAYMENT] Order ID {order_id} not found in database")
-            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "ORDER_NOT_FOUND", "detail": f"Order {order_id} not found"}
+            )
 
         # 2. Check Order Status
         if order.status == "blocked":
             logger.warning(f"[PAYMENT] Cannot create payment: Order ID {order_id} is blocked by policy")
             raise HTTPException(
                 status_code=403,
-                detail="Transaction was blocked by policy. Payment cannot be initiated."
+                detail={
+                    "error_code": "POLICY_BLOCKED",
+                    "detail": "Transaction was blocked by policy. Payment cannot be initiated."
+                }
             )
 
         if order.status in ["paid", "completed"]:
             logger.warning(f"[PAYMENT] Duplicate payment attempt: Order ID {order_id} is already paid")
             raise HTTPException(
                 status_code=400,
-                detail="Order already paid."
+                detail={
+                    "error_code": "PAYMENT_ALREADY_COMPLETED",
+                    "detail": "Order already paid."
+                }
             )
 
         # 3. Check Existing Transaction & Idempotency
@@ -72,7 +85,10 @@ class PaymentService:
             logger.warning(f"[PAYMENT] Transaction for order {order_id} is already captured")
             raise HTTPException(
                 status_code=400,
-                detail="Order already paid."
+                detail={
+                    "error_code": "PAYMENT_ALREADY_COMPLETED",
+                    "detail": "Order already paid."
+                }
             )
 
         # 4. Deterministic Policy Re-Verification (Server-side defense in depth)
@@ -81,7 +97,8 @@ class PaymentService:
             db=db,
             merchant_id=order.merchant_id,
             amount_inr=amount_inr,
-            log_audit=False
+            log_audit=False,
+            request_id=request_id
         )
 
         if not policy_res["allowed"]:
@@ -95,17 +112,33 @@ class PaymentService:
                 entity_id=order.id,
                 reason=policy_res["reason"],
                 amount_inr=amount_inr,
-                status="blocked"
+                status="blocked",
+                request_id=request_id
             )
             raise HTTPException(
                 status_code=403,
                 detail={
+                    "error_code": "POLICY_BLOCKED",
                     "error": "Payment blocked by policy",
                     "reason": policy_res["reason"],
                     "order_id": order.id,
                     "amount_inr": amount_inr
                 }
             )
+
+        # Log payment requested
+        await AuditService.log_action(
+            db=db,
+            merchant_id=order.merchant_id,
+            actor_type="payment_service",
+            action="payment_requested",
+            entity_type="order",
+            entity_id=order.id,
+            reason=f"Payment requested for Order #{order.id} (₹{amount_inr:,.2f})",
+            amount_inr=amount_inr,
+            status="pending",
+            request_id=request_id
+        )
 
         # 5. Idempotent Reuse of Pending Razorpay Order if active and matches amount
         amount_paise = int(round(amount_inr * 100))
@@ -185,7 +218,8 @@ class PaymentService:
                 "amount_paise": amount_paise,
                 "currency": "INR",
                 "receipt": receipt_str
-            }
+            },
+            request_id=request_id
         )
 
         return {
@@ -206,7 +240,8 @@ class PaymentService:
         order_id: int,
         razorpay_order_id: str,
         razorpay_payment_id: str,
-        razorpay_signature: str
+        razorpay_signature: str,
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Cryptographically verify the payment signature using the Razorpay Test Secret.
@@ -222,7 +257,10 @@ class PaymentService:
 
         if not order:
             logger.error(f"[PAYMENT] Order ID {order_id} not found during verification")
-            raise HTTPException(status_code=404, detail="Order not found")
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "ORDER_NOT_FOUND", "detail": "Order not found"}
+            )
 
         txn_query = select(Transaction).where(Transaction.order_id == order_id)
         txn_res = await db.execute(txn_query)
@@ -230,7 +268,10 @@ class PaymentService:
 
         if not txn:
             logger.error(f"[PAYMENT] No transaction found for Order ID {order_id}")
-            raise HTTPException(status_code=404, detail="Transaction not found")
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "TRANSACTION_NOT_FOUND", "detail": "Transaction not found"}
+            )
 
         # 2. If already captured (idempotency)
         if txn.status == "captured":
@@ -259,7 +300,8 @@ class PaymentService:
             metadata_json={
                 "razorpay_order_id": razorpay_order_id,
                 "razorpay_payment_id": razorpay_payment_id
-            }
+            },
+            request_id=request_id
         )
 
         # 4. Verify Signature via Razorpay SDK utility or standard HMAC SHA-256
@@ -302,12 +344,16 @@ class PaymentService:
                 reason="Invalid Razorpay payment signature verification failed",
                 amount_inr=float(order.total_inr),
                 status="failed",
-                metadata_json={"razorpay_payment_id": razorpay_payment_id}
+                metadata_json={"razorpay_payment_id": razorpay_payment_id},
+                request_id=request_id
             )
 
             raise HTTPException(
                 status_code=400,
-                detail="Invalid payment signature. Verification failed."
+                detail={
+                    "error_code": "INVALID_PAYMENT_SIGNATURE",
+                    "detail": "Invalid payment signature. Verification failed."
+                }
             )
 
         # 5. Payment Verified Successfully: Update DB & Capture
@@ -335,7 +381,8 @@ class PaymentService:
             metadata_json={
                 "razorpay_payment_id": razorpay_payment_id,
                 "razorpay_order_id": razorpay_order_id
-            }
+            },
+            request_id=request_id
         )
 
         await AuditService.log_action(
@@ -351,7 +398,8 @@ class PaymentService:
             metadata_json={
                 "payment_id": razorpay_payment_id,
                 "order_id": order.id
-            }
+            },
+            request_id=request_id
         )
 
         return {
@@ -369,7 +417,8 @@ class PaymentService:
         db: AsyncSession,
         order_id: int,
         reason: str = "Payment failed or cancelled by user",
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Record a failed or cancelled payment attempt gracefully.
@@ -382,7 +431,10 @@ class PaymentService:
         order = result.scalar_one_or_none()
 
         if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
+            raise HTTPException(
+                status_code=404,
+                detail={"error_code": "ORDER_NOT_FOUND", "detail": "Order not found"}
+            )
 
         txn_query = select(Transaction).where(Transaction.order_id == order_id)
         txn_res = await db.execute(txn_query)
@@ -404,21 +456,24 @@ class PaymentService:
                 reason=reason,
                 amount_inr=float(order.total_inr),
                 status="failed",
-                metadata_json={"error_code": error_code, "reason": reason}
+                metadata_json={"error_code": error_code or "PAYMENT_FAILED", "reason": reason},
+                request_id=request_id
             )
 
         return {
             "success": False,
             "status": "failed",
             "order_id": order.id,
-            "reason": reason
+            "reason": reason,
+            "error_code": error_code or "PAYMENT_FAILED"
         }
 
     @staticmethod
     async def process_webhook(
         db: AsyncSession,
         webhook_body: bytes,
-        webhook_signature: str
+        webhook_signature: str,
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Process authenticated incoming Razorpay webhooks.
@@ -435,7 +490,10 @@ class PaymentService:
             )
         except Exception as e:
             logger.error(f"[WEBHOOK] Invalid webhook signature: {str(e)}")
-            raise HTTPException(status_code=400, detail="Invalid webhook signature")
+            raise HTTPException(
+                status_code=400,
+                detail={"error_code": "INVALID_WEBHOOK_SIGNATURE", "detail": "Invalid webhook signature"}
+            )
 
         import json
         payload = json.loads(webhook_body.decode("utf-8"))
@@ -475,7 +533,8 @@ class PaymentService:
                         entity_id=txn.id,
                         reason=f"Webhook confirmed payment.captured for {razorpay_payment_id}",
                         amount_inr=amount_inr,
-                        status="captured"
+                        status="captured",
+                        request_id=request_id
                     )
 
                 elif event == "payment.failed":
@@ -495,7 +554,8 @@ class PaymentService:
                         entity_id=txn.id,
                         reason=f"Webhook confirmed payment.failed for {razorpay_payment_id}",
                         amount_inr=amount_inr,
-                        status="failed"
+                        status="failed",
+                        request_id=request_id
                     )
 
         return {"status": "ok", "event": event}

@@ -16,7 +16,18 @@ class AuditService:
         amount_inr: Optional[float] = None,
         status: Optional[str] = None,
         metadata_json: Optional[dict] = None,
+        request_id: Optional[str] = None,
     ) -> AuditLog:
+        # Sanitize metadata to NEVER store secrets, API keys or credentials
+        sanitized_meta = dict(metadata_json) if metadata_json else {}
+        sensitive_keys = {"key_secret", "secret", "api_key", "password", "token", "authorization", "razorpay_key_secret"}
+        sanitized_meta = {
+            k: ("[REDACTED]" if any(s in k.lower() for s in sensitive_keys) else v)
+            for k, v in sanitized_meta.items()
+        }
+        if request_id:
+            sanitized_meta["request_id"] = request_id
+
         audit_entry = AuditLog(
             merchant_id=merchant_id,
             actor_type=actor_type,
@@ -26,7 +37,7 @@ class AuditService:
             reason=reason,
             amount_inr=amount_inr,
             status=status,
-            metadata_json=metadata_json,
+            metadata_json=sanitized_meta if sanitized_meta else None,
         )
         db.add(audit_entry)
         await db.commit()

@@ -10,7 +10,8 @@ class PolicyService:
         db: AsyncSession,
         merchant_id: int,
         amount_inr: float,
-        log_audit: bool = True
+        log_audit: bool = True,
+        request_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Deterministic Python policy verification.
@@ -30,12 +31,15 @@ class PolicyService:
             allowed = False
             reason = f"Transaction exceeds maximum transaction limit of ₹{max_limit:,.2f}"
             status = "blocked"
+            audit_action = "policy_blocked"
         else:
             allowed = True
             reason = "Transaction is within the allowed limit"
             status = "allowed"
+            audit_action = "policy_allowed"
 
         if log_audit:
+            # First log the evaluation check
             await AuditService.log_action(
                 db=db,
                 merchant_id=merchant_id,
@@ -49,7 +53,24 @@ class PolicyService:
                     "max_transaction_inr": max_limit,
                     "requested_amount_inr": amount_inr,
                     "policy_id": policy.id if policy else None
-                }
+                },
+                request_id=request_id
+            )
+            # Also log specific policy decision
+            await AuditService.log_action(
+                db=db,
+                merchant_id=merchant_id,
+                actor_type="policy_engine",
+                action=audit_action,
+                entity_type="order",
+                reason=reason,
+                amount_inr=amount_inr,
+                status=status,
+                metadata_json={
+                    "max_transaction_inr": max_limit,
+                    "requested_amount_inr": amount_inr
+                },
+                request_id=request_id
             )
 
         return {

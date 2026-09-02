@@ -27,7 +27,8 @@ async def create_order(
         db=db,
         merchant_id=payload.merchant_id,
         buyer_id=payload.buyer_id,
-        items=raw_items
+        items=raw_items,
+        request_id=payload.request_id
     )
 
     order = res["order"]
@@ -58,7 +59,8 @@ async def create_order(
         policy_allowed=res["policy_allowed"],
         policy_reason=res["policy_reason"],
         items=items_resp,
-        transaction=txn_resp
+        transaction=txn_resp,
+        request_id=payload.request_id
     )
 
 

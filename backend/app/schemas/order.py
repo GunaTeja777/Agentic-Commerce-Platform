@@ -10,6 +10,7 @@ class OrderCreateRequest(BaseModel):
     merchant_id: int
     buyer_id: str
     items: List[OrderItemRequest]
+    request_id: Optional[str] = None
 
 class OrderItemResponse(BaseModel):
     product_id: int
@@ -43,5 +44,6 @@ class OrderCreateResponse(BaseModel):
     policy_reason: str
     items: List[OrderItemResponse]
     transaction: Optional[TransactionResponse] = None
+    request_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
