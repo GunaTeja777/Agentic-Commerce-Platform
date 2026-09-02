@@ -154,11 +154,13 @@ export interface AgentChatResponse {
 
 export const apiService = {
   async chatAgent(payload: {
-    message: string;
+    message?: string;
     merchant_id?: number;
     buyer_id?: string;
     buyer_decision?: string;
     context?: Record<string, unknown>;
+    request_id?: string;
+    structured_request?: any;
   }): Promise<AgentChatResponse> {
     return fetchJson<AgentChatResponse>(`${AGENT_BASE}/agent/chat`, {
       method: 'POST',
@@ -167,7 +169,9 @@ export const apiService = {
         merchant_id: payload.merchant_id || 1,
         buyer_id: payload.buyer_id || 'demo-ai-buyer',
         buyer_decision: payload.buyer_decision,
-        context: payload.context
+        context: payload.context,
+        request_id: payload.request_id,
+        structured_request: payload.structured_request
       })
     });
   },
@@ -377,22 +381,5 @@ export const apiService = {
         }
       };
     }
-  },
-
-  async chatAgent(payload: {
-    message?: string;
-    buyer_id?: string;
-    merchant_id?: number;
-    buyer_decision?: 'accepted' | 'declined' | 'pending';
-    context?: any;
-    request_id?: string;
-    structured_request?: any;
-  }): Promise<any> {
-    const res = await fetchJson<any>(`http://localhost:8001/agent/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    return res;
   }
 };
