@@ -268,13 +268,15 @@ export default function LiveDemoPage() {
         // 3. Growth recommendation from LangGraph Growth Tool
         if (agentRes.recommendations && agentRes.recommendations.length > 0) {
           const rec = agentRes.recommendations[0];
+          const recName = rec.name || 'Recommended Accessory';
+          const recPrice = rec.price_inr || 0;
           setRecommendation({
             id: String(rec.id),
-            name: rec.name,
-            price: rec.price_inr,
-            reason: rec.reason,
+            name: recName,
+            price: recPrice,
+            reason: rec.reason || 'Frequently bought together with this product',
             source: 'Merchant catalog relationship',
-            stock: rec.stock
+            stock: rec.stock || 20
           });
 
           setAgentState('awaiting_buyer_approval');
@@ -282,7 +284,7 @@ export default function LiveDemoPage() {
             ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
             { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
             { id: 't4', label: 'Growth Tool', detail: 'Found data-backed upsell opportunity', status: 'done' },
-            { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${rec.name} (+₹${formatINR(rec.price_inr)})`, status: 'active' }
+            { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recName} (+₹${formatINR(recPrice)})`, status: 'active' }
           ]);
         } else {
           setAgentState('building_basket');
@@ -389,7 +391,9 @@ export default function LiveDemoPage() {
     setBuyerDecision(accepted ? 'accepted' : 'skipped');
 
     const decisionTime = new Date().toLocaleTimeString('en-US', { hour12: false });
-    const buyerMsg = accepted ? 'Yes, add the Wireless Mouse.' : 'No, proceed with the laptop only.';
+    const recLabel = recommendation?.name || 'recommended accessory';
+    const prodLabel = selectedProduct?.name || 'base product';
+    const buyerMsg = accepted ? `Yes, add the ${recLabel}.` : `No, proceed with the ${prodLabel} only.`;
 
     setMessages(prev => [
       ...prev,

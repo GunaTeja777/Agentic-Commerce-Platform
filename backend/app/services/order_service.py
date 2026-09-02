@@ -1,6 +1,7 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.product import Product
 from app.models.order import Order, OrderItem
@@ -163,10 +164,13 @@ class OrderService:
 
         order_items_objs = []
         for c_item in calculated_items:
+            prod_obj: Product = c_item["product"]
+            qty_val: int = int(c_item["quantity"])
+
             order_item = OrderItem(
                 order_id=order.id,
                 product_id=c_item["product_id"],
-                quantity=c_item["quantity"],
+                quantity=qty_val,
                 unit_price_inr=c_item["unit_price_inr"],
                 total_price_inr=c_item["total_price_inr"]
             )
@@ -174,7 +178,7 @@ class OrderService:
             order_items_objs.append(order_item)
 
             # Deduct stock safely ensuring non-negative
-            c_item["product"].stock_quantity = max(0, c_item["product"].stock_quantity - c_item["quantity"])
+            prod_obj.stock_quantity = max(0, prod_obj.stock_quantity - qty_val)
 
         txn = Transaction(
             order_id=order.id,
@@ -211,7 +215,6 @@ class OrderService:
 
     @staticmethod
     async def get_order(db: AsyncSession, order_id: int) -> Optional[Order]:
-        from sqlalchemy.orm import selectinload
         query = (
             select(Order)
             .options(selectinload(Order.items).selectinload(OrderItem.product), selectinload(Order.transaction))
@@ -222,7 +225,6 @@ class OrderService:
 
     @staticmethod
     async def list_orders(db: AsyncSession, merchant_id: Optional[int] = None, limit: int = 50) -> List[Order]:
-        from sqlalchemy.orm import selectinload
         query = (
             select(Order)
             .options(selectinload(Order.items).selectinload(OrderItem.product), selectinload(Order.transaction))
