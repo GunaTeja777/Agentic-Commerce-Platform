@@ -428,12 +428,13 @@ export default function Storefront() {
           letterSpacing: "0.02em",
         }}
       >
-        <div style={{ margin: "0 auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span>🚚 <strong>FREE EXPRESS SHIPPING</strong> on all orders above ₹999</span>
+        <div style={{ margin: "0 auto", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+          <span style={{ backgroundColor: "rgba(255,255,255,0.25)", padding: "2px 8px", borderRadius: 4, fontWeight: 800, fontSize: "0.75rem", letterSpacing: "0.05em" }}>DEMO STORE</span>
+          <span>⚡ <strong>Interactive Demo E-Commerce Store</strong></span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>100% Genuine Certified Tech</span>
+          <span>Integrated with <strong>Demo Razorpay Gateway</strong> (Test Mode)</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Instant 1-Year Official Brand Warranty</span>
+          <span>No Real Money Deducted</span>
         </div>
       </div>
 
@@ -482,11 +483,12 @@ export default function Storefront() {
               N
             </div>
             <div>
-              <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em" }}>
-                NOVA<span style={{ color: "#dc2626" }}>STORE</span>
+              <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#0f172a", letterSpacing: "-0.03em", display: "flex", alignItems: "center", gap: 8 }}>
+                <span>NOVA<span style={{ color: "#dc2626" }}>STORE</span></span>
+                <span style={{ fontSize: "0.62rem", backgroundColor: "#fee2e2", color: "#b91c1c", padding: "2px 6px", borderRadius: 4, fontWeight: 700, letterSpacing: "0.04em" }}>DEMO</span>
               </div>
-              <div style={{ fontSize: "0.7rem", color: "#64748b", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                Real-Time Commerce
+              <div style={{ fontSize: "0.68rem", color: "#64748b", fontWeight: 600, letterSpacing: "0.03em" }}>
+                Demo E-Commerce • Demo Razorpay
               </div>
             </div>
           </div>
@@ -664,14 +666,14 @@ export default function Storefront() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                 <span style={{ fontSize: "1.6rem" }}>📦</span>
                 <h2 style={{ fontSize: "1.8rem", fontWeight: 800, color: "#0f172a" }}>
-                  My Orders & Live Delivery Tracking
+                  Demo Orders & Live Delivery Tracking
                 </h2>
                 <span className="badge-instock" style={{ marginLeft: 6 }}>
-                  ✓ Official Orders
+                  ✓ Demo Razorpay Orders
                 </span>
               </div>
               <p style={{ color: "#64748b", fontSize: "0.95rem" }}>
-                Track the live dispatch and delivery status of all your purchases. Click any order to view its real-time tracking animation!
+                Review simulated purchases processed via the Demo Razorpay Gateway. Click any order to launch its interactive delivery journey animation!
               </p>
             </div>
 
@@ -931,13 +933,13 @@ export default function Storefront() {
                     textTransform: "uppercase",
                   }}
                 >
-                  ★ OFFICIAL STORE • MEGA TECH FEST
+                  ★ DEMO STORE • POWERED BY DEMO RAZORPAY GATEWAY
                 </div>
                 <h2 style={{ fontSize: "2.3rem", fontWeight: 800, color: "#0f172a", lineHeight: 1.2, marginBottom: 12 }}>
                   Next-Gen Tech, <span style={{ color: "#dc2626" }}>Ultra Performance</span>
                 </h2>
                 <p style={{ color: "#475569", fontSize: "1rem", lineHeight: 1.6, marginBottom: 20 }}>
-                  Discover flagship ultrabooks, 4K curved displays, tactile mechanical keyboards, studio audio gear, and high-speed GaN chargers with express home delivery across India.
+                  Explore this interactive demo e-commerce storefront featuring flagship laptops, 4K curved displays, tactile keyboards, studio audio gear, and fast checkout via the <strong>Demo Razorpay Gateway</strong>.
                 </p>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   <button onClick={() => setSelectedCategory("Laptops")} className="btn-red">
@@ -966,19 +968,19 @@ export default function Storefront() {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>100% Genuine Certified Tech</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Interactive Demo E-Commerce Store</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Free Express Delivery Across India</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Integrated with Demo Razorpay Gateway</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>1-Year Official Brand Warranty</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Simulated Payments (No Real Money Charged)</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>7-Day Easy Replacement Policy</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Live Animated Order Tracking Included</span>
                 </div>
               </div>
             </div>
@@ -1565,8 +1567,11 @@ export default function Storefront() {
                   className="btn-red"
                   style={{ width: "100%", padding: "13px 20px", fontSize: "0.95rem" }}
                 >
-                  {orderProcessing ? "Processing Secure Order..." : "💳 Pay Securely with Razorpay"}
+                  {orderProcessing ? "Processing Demo Order..." : "💳 Pay with Demo Razorpay"}
                 </button>
+                <div style={{ textAlign: "center", marginTop: 8, fontSize: "0.74rem", color: "#64748b" }}>
+                  ℹ️ <strong>Demo Store:</strong> Uses Razorpay Test Mode. No real money is charged.
+                </div>
               </div>
             )}
           </div>
