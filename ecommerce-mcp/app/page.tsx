@@ -286,7 +286,14 @@ export default function Storefront() {
       customerEmail: (order as any).customerEmail || customerEmail,
       customerAddress: (order as any).customerAddress || customerAddress,
       items: items,
-      currentStep: order.status === "DELIVERED" ? 4 : order.status === "SHIPPED" ? 3 : 2,
+      currentStep:
+        "currentStep" in order
+          ? order.currentStep
+          : (order as OrderDTO).status === "DELIVERED"
+          ? 4
+          : (order as OrderDTO).status === "SHIPPED"
+          ? 3
+          : 2,
       placedAt: isDTO
         ? new Date((order as OrderDTO).createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
         : (order as ActiveTrackingOrder).placedAt,
