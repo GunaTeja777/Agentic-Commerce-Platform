@@ -138,23 +138,41 @@ app.use((req, res, next) => {
   res.status(401).json({ error: "Unauthorized" });
 });
 
-// Stateless mode: initialize single server and transport once for all requests
-const server = buildServer();
-const transport = new StreamableHTTPServerTransport({
-  sessionIdGenerator: undefined,
+// Session management for Streamable HTTP transport
+const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+app.all("/mcp", async (req, res) => {
+  try {
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    if (sessionId && sessions.has(sessionId)) {
+      const transport = sessions.get(sessionId)!;
+      await transport.handleRequest(req, res, req.body);
+      return;
+    }
+
+    const server = buildServer();
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        sessions.set(id, transport);
+      },
+      onsessionclosed: (id) => {
+        sessions.delete(id);
+      },
+    });
+
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+  } catch (err: any) {
+    console.error("MCP handler error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
 });
 
-server.connect(transport).catch(console.error);
-
-app.post("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res, req.body);
-});
-
-app.get("/mcp", async (req, res) => {
-  await transport.handleRequest(req, res);
-});
-
-app.get("/health", (_req, res) => res.json({ ok: true }));
+app.get("/health", (_req, res) => res.json({ ok: true, activeSessions: sessions.size }));
 
 const port = Number(process.env.MCP_PORT) || 8787;
 app.listen(port, () => {
