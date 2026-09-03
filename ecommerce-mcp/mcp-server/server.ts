@@ -138,18 +138,20 @@ app.use((req, res, next) => {
   res.status(401).json({ error: "Unauthorized" });
 });
 
-// Stateless mode: a fresh transport+server per request is simplest to deploy correctly.
+// Stateless mode: initialize single server and transport once for all requests
+const server = buildServer();
+const transport = new StreamableHTTPServerTransport({
+  sessionIdGenerator: undefined,
+});
+
+server.connect(transport).catch(console.error);
+
 app.post("/mcp", async (req, res) => {
-  const server = buildServer();
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-  });
-  res.on("close", () => {
-    transport.close();
-    server.close();
-  });
-  await server.connect(transport);
   await transport.handleRequest(req, res, req.body);
+});
+
+app.get("/mcp", async (req, res) => {
+  await transport.handleRequest(req, res);
 });
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
