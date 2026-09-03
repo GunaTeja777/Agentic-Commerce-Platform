@@ -429,11 +429,11 @@ export default function Storefront() {
         }}
       >
         <div style={{ margin: "0 auto", display: "flex", alignItems: "center", gap: 8 }}>
-          <span>⚡ <strong>LIVE CATALOG:</strong> 99 Real-Time Products Synced from PostgreSQL</span>
+          <span>🚚 <strong>FREE EXPRESS SHIPPING</strong> on all orders above ₹999</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Razorpay Test Mode Active</span>
+          <span>100% Genuine Certified Tech</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Real-Time Order Tracking Dashboard</span>
+          <span>Instant 1-Year Official Brand Warranty</span>
         </div>
       </div>
 
@@ -667,11 +667,11 @@ export default function Storefront() {
                   My Orders & Live Delivery Tracking
                 </h2>
                 <span className="badge-instock" style={{ marginLeft: 6 }}>
-                  Live PostgreSQL Sync
+                  ✓ Official Orders
                 </span>
               </div>
               <p style={{ color: "#64748b", fontSize: "0.95rem" }}>
-                Real-time record of all orders placed via the storefront or autonomous AI Agents. Click any order to launch the interactive delivery journey!
+                Track the live dispatch and delivery status of all your purchases. Click any order to view its real-time tracking animation!
               </p>
             </div>
 
@@ -931,13 +931,13 @@ export default function Storefront() {
                     textTransform: "uppercase",
                   }}
                 >
-                  ★ Autonomous Agentic Commerce Flagship
+                  ★ OFFICIAL STORE • MEGA TECH FEST
                 </div>
                 <h2 style={{ fontSize: "2.3rem", fontWeight: 800, color: "#0f172a", lineHeight: 1.2, marginBottom: 12 }}>
-                  Explore <span style={{ color: "#dc2626" }}>99 Premium Tech</span> Products
+                  Next-Gen Tech, <span style={{ color: "#dc2626" }}>Ultra Performance</span>
                 </h2>
                 <p style={{ color: "#475569", fontSize: "1rem", lineHeight: 1.6, marginBottom: 20 }}>
-                  Live real-time inventory from your PostgreSQL database. Browse ultra-fast Laptops, 4K Monitors, Studio Audio, Wireless Mice, GaN Fast Chargers, and checkout seamlessly with <strong>Razorpay Test Mode</strong>.
+                  Discover flagship ultrabooks, 4K curved displays, tactile mechanical keyboards, studio audio gear, and high-speed GaN chargers with express home delivery across India.
                 </p>
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                   <button onClick={() => setSelectedCategory("Laptops")} className="btn-red">
@@ -966,15 +966,19 @@ export default function Storefront() {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>PostgreSQL DB: <strong>99 Products Live</strong></span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>100% Genuine Certified Tech</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Razorpay Checkout: <strong>Active (Test Mode)</strong></span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Free Express Delivery Across India</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Order History: <strong>{orders.length} Orders Stored</strong></span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>1-Year Official Brand Warranty</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>7-Day Easy Replacement Policy</span>
                 </div>
               </div>
             </div>
@@ -1561,7 +1565,7 @@ export default function Storefront() {
                   className="btn-red"
                   style={{ width: "100%", padding: "13px 20px", fontSize: "0.95rem" }}
                 >
-                  {orderProcessing ? "Generating Order..." : "💳 Pay with Razorpay (Test Mode)"}
+                  {orderProcessing ? "Processing Secure Order..." : "💳 Pay Securely with Razorpay"}
                 </button>
               </div>
             )}
@@ -1639,9 +1643,9 @@ export default function Storefront() {
                 </p>
 
                 <div style={{ backgroundColor: "#f8fafc", padding: "12px 16px", borderRadius: 8, border: "1px solid #e2e8f0", marginBottom: 20 }}>
-                  <div style={{ fontSize: "0.82rem", color: "#64748b" }}>PostgreSQL Inventory Stock</div>
+                  <div style={{ fontSize: "0.82rem", color: "#64748b" }}>Stock & Delivery Status</div>
                   <div style={{ fontSize: "1rem", fontWeight: 700, color: quickViewProduct.inStock ? "#16a34a" : "#dc2626" }}>
-                    {quickViewProduct.inStock ? `✓ ${quickViewProduct.quantityAvailable} units available` : "Out of stock"}
+                    {quickViewProduct.inStock ? `✓ In Stock • Ready to dispatch in 24 hours (${quickViewProduct.quantityAvailable} units available)` : "Currently Out of Stock"}
                   </div>
                 </div>
               </div>
