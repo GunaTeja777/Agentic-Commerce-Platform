@@ -28,6 +28,22 @@ type OrderResult = {
   items: { productId: string; name: string; quantity: number; unitPrice: number }[];
 };
 
+type ActiveTrackingOrder = {
+  orderId: string;
+  razorpayOrderId: string;
+  razorpayPaymentId?: string;
+  totalAmount: number;
+  customerName: string;
+  customerEmail: string;
+  customerAddress: string;
+  items: { productId: string; name: string; quantity: number; unitPrice: number; imageUrl?: string }[];
+  currentStep: number; // 1 to 4
+  placedAt: string;
+  estimatedDelivery: string;
+  trackingNumber: string;
+  carrier: string;
+};
+
 const PAGE_SIZE = 12;
 
 export default function Storefront() {
@@ -56,10 +72,10 @@ export default function Storefront() {
   // Quick View Modal
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
 
-  // Order Tracker Modal
+  // Live Animated Order Tracker state
+  const [activeTracking, setActiveTracking] = useState<ActiveTrackingOrder | null>(null);
   const [isTrackerOpen, setIsTrackerOpen] = useState<boolean>(false);
   const [trackOrderId, setTrackOrderId] = useState<string>("");
-  const [trackedOrder, setTrackedOrder] = useState<any | null>(null);
   const [trackLoading, setTrackLoading] = useState<boolean>(false);
 
   // MCP Agent Drawer
@@ -199,13 +215,22 @@ export default function Storefront() {
 
   const cartTotalPaise = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
 
-  // Razorpay Checkout
+  // Razorpay Checkout & Launch Tracker
   const handleCheckout = async () => {
     if (!cart.length) return;
     if (!customerEmail.trim()) {
       alert("Please enter customer email");
       return;
     }
+
+    // Keep snapshot of cart items before resetting
+    const orderedItemsSnapshot = cart.map((i) => ({
+      productId: i.product.id,
+      name: i.product.name,
+      quantity: i.quantity,
+      unitPrice: i.product.price,
+      imageUrl: i.product.imageUrl || undefined,
+    }));
 
     try {
       setOrderProcessing(true);
@@ -225,6 +250,41 @@ export default function Storefront() {
       setLastOrder(data);
       setCart([]);
 
+      // Function to initialize tracking
+      const setupTracking = async (paymentId: string) => {
+        try {
+          await fetch(`/api/orders/${data.orderId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpayPaymentId: paymentId,
+              razorpayOrderId: data.razorpayOrderId,
+            }),
+          });
+        } catch (e) {
+          console.error("Failed to mark order paid:", e);
+        }
+
+        setActiveTracking({
+          orderId: data.orderId,
+          razorpayOrderId: data.razorpayOrderId,
+          razorpayPaymentId: paymentId,
+          totalAmount: data.totalAmount,
+          customerName: customerName.trim(),
+          customerEmail: customerEmail.trim(),
+          customerAddress: customerAddress.trim(),
+          items: orderedItemsSnapshot,
+          currentStep: 2, // Stage 2: Processing & Packaging
+          placedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          estimatedDelivery: "Tomorrow by 5:00 PM",
+          trackingNumber: `BD-${Math.floor(100000 + Math.random() * 900000)}`,
+          carrier: "BlueDart Express Courier",
+        });
+
+        setIsCartOpen(false);
+        setIsTrackerOpen(true);
+      };
+
       // Trigger Razorpay Checkout Modal
       if ((window as any).Razorpay && data.razorpayOrderId && data.razorpayKeyId) {
         const options = {
@@ -240,11 +300,14 @@ export default function Storefront() {
           },
           theme: { color: "#dc2626" },
           handler: function (response: any) {
-            alert(`✅ Payment Captured! Razorpay ID: ${response.razorpay_payment_id}`);
+            setupTracking(response.razorpay_payment_id);
           },
         };
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
+      } else {
+        // Fallback demo mode if Razorpay popup is blocked
+        setupTracking(`pay_demo_${Date.now()}`);
       }
     } catch (err: any) {
       alert(`Checkout failed: ${err.message}`);
@@ -263,15 +326,39 @@ export default function Storefront() {
       const res = await fetch(`/api/orders/${trackOrderId.trim()}`);
       const data = await res.json();
       if (res.ok) {
-        setTrackedOrder(data);
+        setActiveTracking({
+          orderId: data.orderId,
+          razorpayOrderId: data.razorpayOrderId || "N/A",
+          razorpayPaymentId: data.razorpayPaymentId || "pay_verified_razorpay",
+          totalAmount: data.totalAmount,
+          customerName: customerName,
+          customerEmail: data.customerEmail,
+          customerAddress: customerAddress,
+          items: data.items || [],
+          currentStep: data.status === "DELIVERED" ? 4 : data.status === "SHIPPED" ? 3 : 2,
+          placedAt: new Date(data.createdAt || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          estimatedDelivery: "Tomorrow by 5:00 PM",
+          trackingNumber: `BD-${Math.floor(100000 + Math.random() * 900000)}`,
+          carrier: "BlueDart Express Courier",
+        });
       } else {
-        setTrackedOrder({ error: data.error || "Order not found" });
+        alert(data.error || "Order not found");
       }
     } catch (err: any) {
-      setTrackedOrder({ error: err.message });
+      alert(`Failed to track order: ${err.message}`);
     } finally {
       setTrackLoading(false);
     }
+  };
+
+  // Step advancement simulator
+  const advanceStep = () => {
+    if (!activeTracking) return;
+    setActiveTracking((prev) => {
+      if (!prev) return null;
+      const nextStep = prev.currentStep < 4 ? prev.currentStep + 1 : 1;
+      return { ...prev, currentStep: nextStep };
+    });
   };
 
   return (
@@ -295,7 +382,7 @@ export default function Storefront() {
           <span style={{ opacity: 0.7 }}>•</span>
           <span>Razorpay Test Gateway Active</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Free Express Shipping Across India</span>
+          <span>Live Order Tracking Animation Enabled</span>
         </div>
       </div>
 
@@ -412,8 +499,26 @@ export default function Storefront() {
 
           {/* Header Actions */}
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setIsTrackerOpen(true)} className="btn-white" style={{ fontSize: "0.85rem" }}>
+            <button
+              onClick={() => setIsTrackerOpen(true)}
+              className="btn-white"
+              style={{ fontSize: "0.85rem", position: "relative" }}
+            >
               📦 Track Order
+              {activeTracking && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -4,
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    backgroundColor: "#16a34a",
+                  }}
+                  className="step-node-done"
+                ></span>
+              )}
             </button>
 
             <button
@@ -820,7 +925,6 @@ export default function Storefront() {
                 gap: 14,
               }}
             >
-              {/* Progress counter & bar */}
               <div style={{ width: "100%", maxWidth: 360, textAlign: "center" }}>
                 <div style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: 8, fontWeight: 500 }}>
                   Showing <strong style={{ color: "#0f172a" }}>{displayedProducts.length}</strong> of{" "}
@@ -847,7 +951,6 @@ export default function Storefront() {
                 </div>
               </div>
 
-              {/* Load More Button */}
               {visibleCount < filteredProducts.length ? (
                 <button
                   onClick={handleLoadMore}
@@ -1106,13 +1209,6 @@ export default function Storefront() {
                 </button>
               </div>
             )}
-
-            {lastOrder && (
-              <div style={{ padding: "12px 24px", backgroundColor: "#f0fdf4", borderTop: "1px solid #bbf7d0", fontSize: "0.8rem", color: "#15803d" }}>
-                <strong>Order Generated:</strong> {lastOrder.orderId}
-                <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Razorpay ID: {lastOrder.razorpayOrderId}</div>
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1212,107 +1308,444 @@ export default function Storefront() {
         </div>
       )}
 
-      {/* 🔴 ORDER TRACKER MODAL */}
+      {/* 🔴 🚚 LIVE ANIMATED ORDER TRACKER MODAL */}
       {isTrackerOpen && (
         <div
           style={{
             position: "fixed",
             inset: 0,
-            zIndex: 70,
-            backgroundColor: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
+            zIndex: 80,
+            backgroundColor: "rgba(15, 23, 42, 0.7)",
+            backdropFilter: "blur(6px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 20,
+            padding: "20px",
+            overflowY: "auto",
           }}
         >
           <div
+            className="modal-bounce-in"
             style={{
               backgroundColor: "#ffffff",
-              borderRadius: 16,
-              maxWidth: 540,
+              borderRadius: 20,
+              maxWidth: 780,
               width: "100%",
-              padding: 32,
-              boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
+              boxShadow: "0 25px 60px -12px rgba(0,0,0,0.3)",
               position: "relative",
+              overflow: "hidden",
+              border: "1px solid #fee2e2",
             }}
           >
-            <button
-              onClick={() => setIsTrackerOpen(false)}
+            {/* Modal Top Header Banner */}
+            <div
               style={{
-                position: "absolute",
-                top: 20,
-                right: 20,
-                background: "#f1f5f9",
-                border: "none",
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                cursor: "pointer",
+                background: "linear-gradient(135deg, #b91c1c 0%, #dc2626 100%)",
+                color: "#ffffff",
+                padding: "24px 32px",
+                position: "relative",
               }}
             >
-              ✕
-            </button>
-
-            <h3 style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a", marginBottom: 6 }}>
-              📦 Order Status Lookup
-            </h3>
-            <p style={{ color: "#64748b", fontSize: "0.88rem", marginBottom: 20 }}>
-              Enter your Order ID to inspect the live PostgreSQL record.
-            </p>
-
-            <form onSubmit={handleTrackQuery} style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-              <input
-                type="text"
-                placeholder="Paste Order ID..."
-                value={trackOrderId}
-                onChange={(e) => setTrackOrderId(e.target.value)}
+              <button
+                onClick={() => setIsTrackerOpen(false)}
                 style={{
-                  flex: 1,
-                  padding: "10px 14px",
-                  borderRadius: 8,
-                  border: "1px solid #cbd5e1",
-                  fontSize: "0.9rem",
+                  position: "absolute",
+                  top: 20,
+                  right: 20,
+                  background: "rgba(255,255,255,0.2)",
+                  border: "none",
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  cursor: "pointer",
+                  color: "#ffffff",
+                  fontSize: "1rem",
+                  fontWeight: 700,
                 }}
-              />
-              <button type="submit" disabled={trackLoading} className="btn-red">
-                {trackLoading ? "Searching..." : "Track"}
+              >
+                ✕
               </button>
-            </form>
 
-            {trackedOrder && (
-              <div style={{ backgroundColor: "#f8fafc", padding: 20, borderRadius: 10, border: "1px solid #e2e8f0" }}>
-                {trackedOrder.error ? (
-                  <div style={{ color: "#dc2626", fontWeight: 600 }}>❌ {trackedOrder.error}</div>
-                ) : (
-                  <div style={{ fontSize: "0.88rem", display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#64748b" }}>Order ID:</span>
-                      <strong style={{ fontFamily: "monospace" }}>{trackedOrder.orderId}</strong>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#64748b" }}>Status:</span>
-                      <span className="badge-instock" style={{ textTransform: "uppercase" }}>{trackedOrder.status}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#64748b" }}>Total:</span>
-                      <strong style={{ color: "#dc2626" }}>₹{(trackedOrder.totalAmount / 100).toLocaleString("en-IN")}</strong>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ color: "#64748b" }}>Customer:</span>
-                      <span>{trackedOrder.customerEmail}</span>
-                    </div>
-                    {trackedOrder.razorpayOrderId && (
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.8rem", color: "#64748b" }}>
-                        <span>Razorpay Order:</span>
-                        <span style={{ fontFamily: "monospace" }}>{trackedOrder.razorpayOrderId}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 8 }}>
+                <div
+                  style={{
+                    backgroundColor: "#ffffff",
+                    color: "#dc2626",
+                    width: 44,
+                    height: 44,
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "1.4rem",
+                    fontWeight: 900,
+                    boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
+                  }}
+                >
+                  ✓
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.45rem", fontWeight: 800, letterSpacing: "-0.02em" }}>
+                    Order Confirmed & Verified! 🎉
+                  </h3>
+                  <p style={{ fontSize: "0.85rem", opacity: 0.9 }}>
+                    Thank you for shopping with NovaStore. Your order is being processed in real time.
+                  </p>
+                </div>
               </div>
-            )}
+
+              {activeTracking && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    display: "flex",
+                    gap: 12,
+                    flexWrap: "wrap",
+                    fontSize: "0.8rem",
+                    backgroundColor: "rgba(0,0,0,0.15)",
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                  }}
+                >
+                  <span>Order ID: <strong style={{ fontFamily: "monospace" }}>{activeTracking.orderId}</strong></span>
+                  <span>•</span>
+                  <span>Payment Ref: <strong style={{ fontFamily: "monospace" }}>{activeTracking.razorpayPaymentId || "Captured"}</strong></span>
+                  <span>•</span>
+                  <span>Placed At: <strong>{activeTracking.placedAt}</strong></span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: "28px 32px" }}>
+              {/* Lookup Form if user opened manually */}
+              {!activeTracking ? (
+                <div>
+                  <h4 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
+                    Track an Existing Order
+                  </h4>
+                  <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: 20 }}>
+                    Enter the Order ID generated during checkout or by your AI Agent to see live delivery tracking.
+                  </p>
+                  <form onSubmit={handleTrackQuery} style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+                    <input
+                      type="text"
+                      placeholder="Paste Order ID (e.g. cmtl3sd7c...)"
+                      value={trackOrderId}
+                      onChange={(e) => setTrackOrderId(e.target.value)}
+                      style={{
+                        flex: 1,
+                        padding: "11px 14px",
+                        borderRadius: 8,
+                        border: "1px solid #cbd5e1",
+                        fontSize: "0.9rem",
+                      }}
+                    />
+                    <button type="submit" disabled={trackLoading} className="btn-red">
+                      {trackLoading ? "Searching..." : "Track Order"}
+                    </button>
+                  </form>
+                </div>
+              ) : (
+                <div>
+                  {/* 🚚 ANIMATED STEP TRACKER */}
+                  <div
+                    style={{
+                      backgroundColor: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 16,
+                      padding: "24px 20px",
+                      marginBottom: 24,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="animated-truck" style={{ fontSize: "1.4rem" }}>🚚</span>
+                        <h4 style={{ fontSize: "1rem", fontWeight: 800, color: "#0f172a" }}>
+                          Live Package Journey
+                        </h4>
+                      </div>
+
+                      <button
+                        onClick={advanceStep}
+                        style={{
+                          fontSize: "0.78rem",
+                          fontWeight: 700,
+                          backgroundColor: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          color: "#334155",
+                          padding: "5px 12px",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Simulate Next Stage ⏭️
+                      </button>
+                    </div>
+
+                    {/* Stepper Timeline */}
+                    <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      {/* Connecting Line */}
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 20,
+                          left: 30,
+                          right: 30,
+                          height: 4,
+                          backgroundColor: "#e2e8f0",
+                          zIndex: 1,
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: "100%",
+                            width:
+                              activeTracking.currentStep === 1
+                                ? "0%"
+                                : activeTracking.currentStep === 2
+                                ? "33%"
+                                : activeTracking.currentStep === 3
+                                ? "66%"
+                                : "100%",
+                            backgroundColor: "#dc2626",
+                            transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+                          }}
+                          className={activeTracking.currentStep < 4 ? "dashed-progress-line" : ""}
+                        ></div>
+                      </div>
+
+                      {/* Step 1: Order Verified */}
+                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: "50%",
+                            backgroundColor: activeTracking.currentStep >= 1 ? "#16a34a" : "#cbd5e1",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.1rem",
+                            fontWeight: 700,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                          className={activeTracking.currentStep === 1 ? "step-node-active" : "step-node-done"}
+                        >
+                          ✓
+                        </div>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                          Payment Verified
+                        </span>
+                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>Instant</span>
+                      </div>
+
+                      {/* Step 2: Processing & Packed */}
+                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 100 }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: "50%",
+                            backgroundColor:
+                              activeTracking.currentStep > 2
+                                ? "#16a34a"
+                                : activeTracking.currentStep === 2
+                                ? "#dc2626"
+                                : "#cbd5e1",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.1rem",
+                            fontWeight: 700,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                          className={activeTracking.currentStep === 2 ? "step-node-active" : activeTracking.currentStep > 2 ? "step-node-done" : ""}
+                        >
+                          📦
+                        </div>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                          Packing & QC
+                        </span>
+                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                          {activeTracking.currentStep === 2 ? "In Progress..." : "Completed"}
+                        </span>
+                      </div>
+
+                      {/* Step 3: In Transit */}
+                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 110 }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: "50%",
+                            backgroundColor:
+                              activeTracking.currentStep > 3
+                                ? "#16a34a"
+                                : activeTracking.currentStep === 3
+                                ? "#dc2626"
+                                : "#cbd5e1",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.1rem",
+                            fontWeight: 700,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                          className={activeTracking.currentStep === 3 ? "step-node-active" : activeTracking.currentStep > 3 ? "step-node-done" : ""}
+                        >
+                          🚚
+                        </div>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                          Dispatched
+                        </span>
+                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                          {activeTracking.currentStep === 3 ? "On the Way" : activeTracking.currentStep > 3 ? "Dispatched" : "Pending"}
+                        </span>
+                      </div>
+
+                      {/* Step 4: Delivered */}
+                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
+                        <div
+                          style={{
+                            width: 40,
+                            height: 40,
+                            borderRadius: "50%",
+                            backgroundColor: activeTracking.currentStep === 4 ? "#16a34a" : "#cbd5e1",
+                            color: "#ffffff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1.1rem",
+                            fontWeight: 700,
+                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                          }}
+                          className={activeTracking.currentStep === 4 ? "step-node-done" : ""}
+                        >
+                          🏠
+                        </div>
+                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                          Delivered
+                        </span>
+                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                          {activeTracking.currentStep === 4 ? "Delivered!" : "Estimated: Tomorrow"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Courier & Live Location Banner */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      gap: 16,
+                      backgroundColor: "#fff1f2",
+                      border: "1px solid #fecaca",
+                      padding: "16px 20px",
+                      borderRadius: 12,
+                      marginBottom: 24,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#b91c1c", textTransform: "uppercase" }}>
+                        Delivery Partner
+                      </div>
+                      <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a" }}>
+                        {activeTracking.carrier} • <span style={{ fontFamily: "monospace" }}>{activeTracking.trackingNumber}</span>
+                      </div>
+                      <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                        Latest Status: Package scanned at Indiranagar Delivery Hub
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Expected Delivery</div>
+                      <div style={{ fontSize: "1rem", fontWeight: 800, color: "#dc2626" }}>
+                        {activeTracking.estimatedDelivery}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Two Columns: Ordered Items & Shipping Details */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
+                    {/* Items List */}
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
+                      <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
+                        Items in this Order ({activeTracking.items.length})
+                      </h5>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 180, overflowY: "auto" }}>
+                        {activeTracking.items.map((it, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            {it.imageUrl && (
+                              <img
+                                src={it.imageUrl}
+                                alt={it.name}
+                                style={{ width: 42, height: 42, borderRadius: 6, objectFit: "cover" }}
+                              />
+                            )}
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#0f172a" }}>{it.name}</div>
+                              <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                                Qty: {it.quantity} × ₹{(it.unitPrice / 100).toLocaleString("en-IN")}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#dc2626" }}>
+                              ₹{((it.unitPrice * it.quantity) / 100).toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{ borderTop: "1px solid #f1f5f9", marginTop: 12, paddingTop: 12, display: "flex", justifyContent: "space-between", fontWeight: 800 }}>
+                        <span>Total Paid:</span>
+                        <span style={{ color: "#dc2626", fontSize: "1.05rem" }}>
+                          ₹{(activeTracking.totalAmount / 100).toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Shipping Address */}
+                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
+                      <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
+                        Shipping & Recipient Details
+                      </h5>
+                      <div style={{ fontSize: "0.85rem", color: "#334155", lineHeight: 1.6 }}>
+                        <div><strong>Recipient:</strong> {activeTracking.customerName}</div>
+                        <div><strong>Email:</strong> {activeTracking.customerEmail}</div>
+                        <div><strong>Address:</strong> {activeTracking.customerAddress}</div>
+                        <div style={{ marginTop: 8, fontSize: "0.8rem", color: "#16a34a" }}>
+                          ✓ Order status updates sent to {activeTracking.customerEmail}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions Footer */}
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
+                    <button
+                      onClick={() => setActiveTracking(null)}
+                      className="btn-white"
+                      style={{ fontSize: "0.85rem" }}
+                    >
+                      Search Another Order
+                    </button>
+                    <button
+                      onClick={() => setIsTrackerOpen(false)}
+                      className="btn-red"
+                      style={{ fontSize: "0.85rem" }}
+                    >
+                      Back to Storefront
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

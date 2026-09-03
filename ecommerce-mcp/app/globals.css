@@ -215,6 +215,98 @@ body {
   gap: 4px;
 }
 
+/* =========================================================
+   🚚 ANIMATED ORDER TRACKER STYLES
+   ========================================================= */
+
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+@keyframes pulseGlowGreen {
+  0% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(22, 163, 74, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 163, 74, 0);
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes driveTruck {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(6px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes dashedLineFlow {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 40px 0;
+  }
+}
+
+.step-node-active {
+  animation: pulseGlow 1.8s infinite;
+}
+
+.step-node-done {
+  animation: pulseGlowGreen 2.2s infinite;
+}
+
+.animated-truck {
+  display: inline-block;
+  animation: driveTruck 1.2s infinite ease-in-out;
+}
+
+.modal-bounce-in {
+  animation: bounceIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.dashed-progress-line {
+  background: repeating-linear-gradient(
+    90deg,
+    #dc2626,
+    #dc2626 8px,
+    #e2e8f0 8px,
+    #e2e8f0 16px
+  );
+  background-size: 32px 100%;
+  animation: dashedLineFlow 1s linear infinite;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 7px;
