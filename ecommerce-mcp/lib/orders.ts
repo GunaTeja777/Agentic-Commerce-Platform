@@ -96,6 +96,7 @@ export async function getOrderStatus(orderId: string) {
     totalAmount: order.totalAmount,
     currency: order.currency,
     customerEmail: order.customer.email,
+    customerName: order.customer.name,
     razorpayOrderId: order.razorpayOrderId,
     razorpayPaymentId: order.razorpayPaymentId,
     items: order.items.map((i) => ({
@@ -103,6 +104,7 @@ export async function getOrderStatus(orderId: string) {
       name: i.product.name,
       quantity: i.quantity,
       unitPrice: i.unitPrice,
+      imageUrl: i.product.imageUrl,
     })),
     createdAt: order.createdAt,
   };
@@ -138,8 +140,48 @@ export async function getCustomerOrders(customerEmail: string) {
     status: order.status,
     totalAmount: order.totalAmount,
     currency: order.currency,
+    customerEmail: customer.email,
+    customerName: customer.name,
+    razorpayOrderId: order.razorpayOrderId,
+    razorpayPaymentId: order.razorpayPaymentId,
     createdAt: order.createdAt,
-    items: order.items.map((i) => ({ productId: i.productId, name: i.product.name, quantity: i.quantity })),
+    items: order.items.map((i) => ({
+      productId: i.productId,
+      name: i.product.name,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      imageUrl: i.product.imageUrl,
+    })),
+  }));
+}
+
+export async function getAllOrders(limit = 50) {
+  const orders = await prisma.order.findMany({
+    take: limit,
+    orderBy: { createdAt: "desc" },
+    include: {
+      customer: true,
+      items: { include: { product: true } },
+    },
+  });
+
+  return orders.map((order) => ({
+    orderId: order.id,
+    status: order.status,
+    totalAmount: order.totalAmount,
+    currency: order.currency,
+    customerEmail: order.customer.email,
+    customerName: order.customer.name,
+    razorpayOrderId: order.razorpayOrderId,
+    razorpayPaymentId: order.razorpayPaymentId,
+    createdAt: order.createdAt,
+    items: order.items.map((i) => ({
+      productId: i.productId,
+      name: i.product.name,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      imageUrl: i.product.imageUrl,
+    })),
   }));
 }
 

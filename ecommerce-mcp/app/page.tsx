@@ -19,13 +19,25 @@ type CartItem = {
   quantity: number;
 };
 
-type OrderResult = {
+type OrderItemDTO = {
+  productId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  imageUrl?: string | null;
+};
+
+type OrderDTO = {
   orderId: string;
   status: string;
   totalAmount: number;
-  razorpayOrderId: string;
-  razorpayKeyId?: string;
-  items: { productId: string; name: string; quantity: number; unitPrice: number }[];
+  currency: string;
+  customerEmail: string;
+  customerName?: string | null;
+  razorpayOrderId?: string | null;
+  razorpayPaymentId?: string | null;
+  createdAt: string;
+  items: OrderItemDTO[];
 };
 
 type ActiveTrackingOrder = {
@@ -36,7 +48,7 @@ type ActiveTrackingOrder = {
   customerName: string;
   customerEmail: string;
   customerAddress: string;
-  items: { productId: string; name: string; quantity: number; unitPrice: number; imageUrl?: string }[];
+  items: OrderItemDTO[];
   currentStep: number; // 1 to 4
   placedAt: string;
   estimatedDelivery: string;
@@ -46,6 +58,25 @@ type ActiveTrackingOrder = {
 
 const PAGE_SIZE = 12;
 
+// Fallback image helper
+function getDisplayImage(name: string, category: string, imageUrl?: string | null) {
+  if (imageUrl && imageUrl.trim()) return imageUrl;
+  const n = name.toLowerCase();
+  if (category.toLowerCase() === "laptops" || n.includes("book")) {
+    return "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=600&auto=format&fit=crop&q=80";
+  }
+  if (category.toLowerCase() === "audio" || n.includes("headphone") || n.includes("buds")) {
+    return "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600&auto=format&fit=crop&q=80";
+  }
+  if (category.toLowerCase() === "gaming" || n.includes("keyboard")) {
+    return "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=600&auto=format&fit=crop&q=80";
+  }
+  if (n.includes("mouse")) {
+    return "https://images.unsplash.com/photo-1615663245857-ac93bb7c39e7?w=600&auto=format&fit=crop&q=80";
+  }
+  return "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=600&auto=format&fit=crop&q=80";
+}
+
 export default function Storefront() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -54,7 +85,15 @@ export default function Storefront() {
   const [sortBy, setSortBy] = useState<string>("featured");
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
 
-  // Pagination / Load More
+  // Active View: 'store' | 'orders' | 'mcp'
+  const [activeView, setActiveView] = useState<"store" | "orders" | "mcp">("store");
+
+  // Orders Dashboard state
+  const [orders, setOrders] = useState<OrderDTO[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState<boolean>(false);
+  const [ordersFilter, setOrdersFilter] = useState<string>("all");
+
+  // Pagination
   const [visibleCount, setVisibleCount] = useState<number>(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
 
@@ -67,24 +106,29 @@ export default function Storefront() {
   const [customerName, setCustomerName] = useState<string>("Alex Mercer");
   const [customerAddress, setCustomerAddress] = useState<string>("221B Baker Street, Indiranagar, Bengaluru");
   const [orderProcessing, setOrderProcessing] = useState<boolean>(false);
-  const [lastOrder, setLastOrder] = useState<OrderResult | null>(null);
 
   // Quick View Modal
   const [quickViewProduct, setQuickViewProduct] = useState<Product | null>(null);
 
-  // Live Animated Order Tracker state
+  // Live Tracking Modal & state
   const [activeTracking, setActiveTracking] = useState<ActiveTrackingOrder | null>(null);
-  const [isTrackerOpen, setIsTrackerOpen] = useState<boolean>(false);
-  const [trackOrderId, setTrackOrderId] = useState<string>("");
-  const [trackLoading, setTrackLoading] = useState<boolean>(false);
-
-  // MCP Agent Drawer
-  const [isMcpOpen, setIsMcpOpen] = useState<boolean>(false);
+  const [isTrackingModalOpen, setIsTrackingModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
     fetchProducts();
+    fetchOrders();
     loadRazorpayScript();
   }, []);
+
+  // Poll for new orders every 7 seconds if on orders view
+  useEffect(() => {
+    if (activeView === "orders") {
+      const interval = setInterval(() => {
+        fetchOrders(false);
+      }, 7000);
+      return () => clearInterval(interval);
+    }
+  }, [activeView]);
 
   // Reset pagination on filter changes
   useEffect(() => {
@@ -116,6 +160,21 @@ export default function Storefront() {
     }
   };
 
+  const fetchOrders = async (showLoading = true) => {
+    try {
+      if (showLoading) setOrdersLoading(true);
+      const res = await fetch("/api/orders");
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setOrders(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch orders:", err);
+    } finally {
+      if (showLoading) setOrdersLoading(false);
+    }
+  };
+
   // Category counts
   const categoryCounts = useMemo(() => {
     const counts: Record<string, number> = { all: products.length };
@@ -131,11 +190,10 @@ export default function Storefront() {
     return ["all", ...unique];
   }, [products]);
 
-  // Filtered & Sorted Products
+  // Filtered Products
   const filteredProducts = useMemo(() => {
     let list = [...products];
 
-    // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       list = list.filter(
@@ -143,17 +201,14 @@ export default function Storefront() {
       );
     }
 
-    // Category
     if (selectedCategory !== "all") {
       list = list.filter((p) => p.category.toLowerCase() === selectedCategory.toLowerCase());
     }
 
-    // In Stock Only
     if (inStockOnly) {
       list = list.filter((p) => p.inStock && p.quantityAvailable > 0);
     }
 
-    // Sort
     if (sortBy === "price-low") {
       list.sort((a, b) => a.price - b.price);
     } else if (sortBy === "price-high") {
@@ -165,7 +220,6 @@ export default function Storefront() {
     return list;
   }, [products, searchQuery, selectedCategory, inStockOnly, sortBy]);
 
-  // Displayed paginated slice
   const displayedProducts = useMemo(() => {
     return filteredProducts.slice(0, visibleCount);
   }, [filteredProducts, visibleCount]);
@@ -215,7 +269,35 @@ export default function Storefront() {
 
   const cartTotalPaise = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
 
-  // Razorpay Checkout & Launch Tracker
+  // Open live tracker for any order
+  const openOrderTracker = (order: OrderDTO | ActiveTrackingOrder) => {
+    const isDTO = "createdAt" in order;
+    const items = order.items.map((it) => ({
+      ...it,
+      imageUrl: getDisplayImage(it.name, "", it.imageUrl),
+    }));
+
+    setActiveTracking({
+      orderId: order.orderId,
+      razorpayOrderId: order.razorpayOrderId || "order_verified",
+      razorpayPaymentId: order.razorpayPaymentId || "pay_verified",
+      totalAmount: order.totalAmount,
+      customerName: (order as any).customerName || customerName,
+      customerEmail: (order as any).customerEmail || customerEmail,
+      customerAddress: (order as any).customerAddress || customerAddress,
+      items: items,
+      currentStep: order.status === "DELIVERED" ? 4 : order.status === "SHIPPED" ? 3 : 2,
+      placedAt: isDTO
+        ? new Date((order as OrderDTO).createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : (order as ActiveTrackingOrder).placedAt,
+      estimatedDelivery: "Tomorrow by 5:00 PM",
+      trackingNumber: `BD-${order.orderId.slice(-6).toUpperCase()}`,
+      carrier: "BlueDart Express Courier",
+    });
+    setIsTrackingModalOpen(true);
+  };
+
+  // Razorpay Checkout
   const handleCheckout = async () => {
     if (!cart.length) return;
     if (!customerEmail.trim()) {
@@ -223,13 +305,12 @@ export default function Storefront() {
       return;
     }
 
-    // Keep snapshot of cart items before resetting
-    const orderedItemsSnapshot = cart.map((i) => ({
+    const orderedItemsSnapshot: OrderItemDTO[] = cart.map((i) => ({
       productId: i.product.id,
       name: i.product.name,
       quantity: i.quantity,
       unitPrice: i.product.price,
-      imageUrl: i.product.imageUrl || undefined,
+      imageUrl: getDisplayImage(i.product.name, i.product.category, i.product.imageUrl),
     }));
 
     try {
@@ -247,11 +328,9 @@ export default function Storefront() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Order creation failed");
 
-      setLastOrder(data);
       setCart([]);
 
-      // Function to initialize tracking
-      const setupTracking = async (paymentId: string) => {
+      const completeOrder = async (paymentId: string) => {
         try {
           await fetch(`/api/orders/${data.orderId}`, {
             method: "PATCH",
@@ -265,6 +344,10 @@ export default function Storefront() {
           console.error("Failed to mark order paid:", e);
         }
 
+        // Refresh orders list
+        await fetchOrders(false);
+
+        // Open tracking modal
         setActiveTracking({
           orderId: data.orderId,
           razorpayOrderId: data.razorpayOrderId,
@@ -274,18 +357,17 @@ export default function Storefront() {
           customerEmail: customerEmail.trim(),
           customerAddress: customerAddress.trim(),
           items: orderedItemsSnapshot,
-          currentStep: 2, // Stage 2: Processing & Packaging
+          currentStep: 2,
           placedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           estimatedDelivery: "Tomorrow by 5:00 PM",
-          trackingNumber: `BD-${Math.floor(100000 + Math.random() * 900000)}`,
+          trackingNumber: `BD-${data.orderId.slice(-6).toUpperCase()}`,
           carrier: "BlueDart Express Courier",
         });
 
         setIsCartOpen(false);
-        setIsTrackerOpen(true);
+        setIsTrackingModalOpen(true);
       };
 
-      // Trigger Razorpay Checkout Modal
       if ((window as any).Razorpay && data.razorpayOrderId && data.razorpayKeyId) {
         const options = {
           key: data.razorpayKeyId,
@@ -300,14 +382,13 @@ export default function Storefront() {
           },
           theme: { color: "#dc2626" },
           handler: function (response: any) {
-            setupTracking(response.razorpay_payment_id);
+            completeOrder(response.razorpay_payment_id);
           },
         };
         const rzp = new (window as any).Razorpay(options);
         rzp.open();
       } else {
-        // Fallback demo mode if Razorpay popup is blocked
-        setupTracking(`pay_demo_${Date.now()}`);
+        completeOrder(`pay_test_${Date.now()}`);
       }
     } catch (err: any) {
       alert(`Checkout failed: ${err.message}`);
@@ -316,42 +397,6 @@ export default function Storefront() {
     }
   };
 
-  // Track order query
-  const handleTrackQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!trackOrderId.trim()) return;
-
-    try {
-      setTrackLoading(true);
-      const res = await fetch(`/api/orders/${trackOrderId.trim()}`);
-      const data = await res.json();
-      if (res.ok) {
-        setActiveTracking({
-          orderId: data.orderId,
-          razorpayOrderId: data.razorpayOrderId || "N/A",
-          razorpayPaymentId: data.razorpayPaymentId || "pay_verified_razorpay",
-          totalAmount: data.totalAmount,
-          customerName: customerName,
-          customerEmail: data.customerEmail,
-          customerAddress: customerAddress,
-          items: data.items || [],
-          currentStep: data.status === "DELIVERED" ? 4 : data.status === "SHIPPED" ? 3 : 2,
-          placedAt: new Date(data.createdAt || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          estimatedDelivery: "Tomorrow by 5:00 PM",
-          trackingNumber: `BD-${Math.floor(100000 + Math.random() * 900000)}`,
-          carrier: "BlueDart Express Courier",
-        });
-      } else {
-        alert(data.error || "Order not found");
-      }
-    } catch (err: any) {
-      alert(`Failed to track order: ${err.message}`);
-    } finally {
-      setTrackLoading(false);
-    }
-  };
-
-  // Step advancement simulator
   const advanceStep = () => {
     if (!activeTracking) return;
     setActiveTracking((prev) => {
@@ -360,6 +405,12 @@ export default function Storefront() {
       return { ...prev, currentStep: nextStep };
     });
   };
+
+  // Filtered orders list
+  const filteredOrders = useMemo(() => {
+    if (ordersFilter === "all") return orders;
+    return orders.filter((o) => o.status.toLowerCase() === ordersFilter.toLowerCase());
+  }, [orders, ordersFilter]);
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#ffffff" }}>
@@ -380,9 +431,9 @@ export default function Storefront() {
         <div style={{ margin: "0 auto", display: "flex", alignItems: "center", gap: 8 }}>
           <span>⚡ <strong>LIVE CATALOG:</strong> 99 Real-Time Products Synced from PostgreSQL</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Razorpay Test Gateway Active</span>
+          <span>Razorpay Test Mode Active</span>
           <span style={{ opacity: 0.7 }}>•</span>
-          <span>Live Order Tracking Animation Enabled</span>
+          <span>Real-Time Order Tracking Dashboard</span>
         </div>
       </div>
 
@@ -411,7 +462,7 @@ export default function Storefront() {
           {/* Logo */}
           <div
             style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
-            onClick={() => setSelectedCategory("all")}
+            onClick={() => setActiveView("store")}
           >
             <div
               style={{
@@ -440,103 +491,87 @@ export default function Storefront() {
             </div>
           </div>
 
-          {/* Search Bar */}
-          <div style={{ flex: 1, maxWidth: 640, position: "relative" }}>
-            <div
+          {/* Navigation View Switcher Tabs */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={() => setActiveView("store")}
+              className={activeView === "store" ? "btn-red" : "btn-white"}
+              style={{ padding: "9px 18px", fontSize: "0.88rem" }}
+            >
+              🛍️ Store Catalog
+            </button>
+
+            {/* Dedicated Track Orders Page Button */}
+            <button
+              onClick={() => {
+                setActiveView("orders");
+                fetchOrders(true);
+              }}
+              className={activeView === "orders" ? "btn-red" : "btn-white"}
               style={{
-                display: "flex",
-                alignItems: "center",
-                border: "2px solid #e2e8f0",
-                borderRadius: 10,
-                overflow: "hidden",
-                backgroundColor: "#f8fafc",
-                transition: "all 0.2s ease",
+                padding: "9px 18px",
+                fontSize: "0.88rem",
+                position: "relative",
+                borderColor: activeView === "orders" ? "#dc2626" : "#fecaca",
+                color: activeView === "orders" ? "#ffffff" : "#b91c1c",
               }}
             >
-              <span style={{ padding: "0 12px", color: "#64748b", fontSize: "1.1rem" }}>🔍</span>
-              <input
-                type="text"
-                placeholder="Search across 99 products (Laptops, Keyboards, Audio, Chargers...)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "11px 4px",
-                  border: "none",
-                  outline: "none",
-                  backgroundColor: "transparent",
-                  fontSize: "0.92rem",
-                  color: "#0f172a",
-                }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  style={{
-                    border: "none",
-                    background: "none",
-                    padding: "0 12px",
-                    color: "#94a3b8",
-                    cursor: "pointer",
-                    fontSize: "1rem",
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-              <button
-                className="btn-red"
-                style={{
-                  borderRadius: 0,
-                  padding: "12px 22px",
-                  fontSize: "0.9rem",
-                }}
-              >
-                Search
-              </button>
-            </div>
-          </div>
-
-          {/* Header Actions */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button
-              onClick={() => setIsTrackerOpen(true)}
-              className="btn-white"
-              style={{ fontSize: "0.85rem", position: "relative" }}
-            >
-              📦 Track Order
-              {activeTracking && (
+              📦 Track Orders ({orders.length})
+              {orders.length > 0 && (
                 <span
                   style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -4,
-                    width: 10,
-                    height: 10,
+                    backgroundColor: activeView === "orders" ? "#ffffff" : "#dc2626",
+                    color: activeView === "orders" ? "#dc2626" : "#ffffff",
                     borderRadius: "50%",
-                    backgroundColor: "#16a34a",
+                    width: 20,
+                    height: 20,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    marginLeft: 6,
                   }}
-                  className="step-node-done"
-                ></span>
+                >
+                  {orders.length}
+                </span>
               )}
             </button>
 
             <button
-              onClick={() => setIsMcpOpen(true)}
-              className="btn-white"
-              style={{ fontSize: "0.85rem", color: "#dc2626", borderColor: "#fecaca" }}
+              onClick={() => setActiveView("mcp")}
+              className={activeView === "mcp" ? "btn-red" : "btn-white"}
+              style={{ padding: "9px 18px", fontSize: "0.88rem" }}
             >
               🤖 Agent MCP
             </button>
+          </div>
 
-            {/* Cart Button */}
+          {/* Search & Cart Actions */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {activeView === "store" && (
+              <div style={{ position: "relative", width: 260 }}>
+                <input
+                  type="text"
+                  placeholder="Quick search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "9px 14px",
+                    border: "1px solid #cbd5e1",
+                    borderRadius: 8,
+                    fontSize: "0.85rem",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            )}
+
             <button
               onClick={() => setIsCartOpen(true)}
               className="btn-red"
-              style={{
-                padding: "10px 18px",
-                position: "relative",
-              }}
+              style={{ padding: "10px 18px" }}
             >
               🛒 Cart
               <span
@@ -560,451 +595,772 @@ export default function Storefront() {
           </div>
         </div>
 
-        {/* 🔴 CATEGORY NAV BAR */}
-        <div style={{ borderTop: "1px solid #f1f5f9", backgroundColor: "#ffffff" }}>
-          <div
-            style={{
-              maxWidth: 1380,
-              margin: "0 auto",
-              padding: "10px 24px",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              overflowX: "auto",
-            }}
-          >
-            {categories.map((cat) => {
-              const count = categoryCounts[cat.toLowerCase()] || 0;
-              const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
-              return (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`category-pill ${isSelected ? "active" : ""}`}
-                >
-                  <span style={{ textTransform: "capitalize" }}>{cat === "all" ? "All Products" : cat}</span>
-                  <span
-                    style={{
-                      marginLeft: 6,
-                      fontSize: "0.72rem",
-                      opacity: isSelected ? 1 : 0.7,
-                      backgroundColor: isSelected ? "rgba(255,255,255,0.25)" : "#f1f5f9",
-                      padding: "2px 6px",
-                      borderRadius: 10,
-                    }}
+        {/* Categories Bar (Only on Storefront view) */}
+        {activeView === "store" && (
+          <div style={{ borderTop: "1px solid #f1f5f9", backgroundColor: "#ffffff" }}>
+            <div
+              style={{
+                maxWidth: 1380,
+                margin: "0 auto",
+                padding: "10px 24px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                overflowX: "auto",
+              }}
+            >
+              {categories.map((cat) => {
+                const count = categoryCounts[cat.toLowerCase()] || 0;
+                const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`category-pill ${isSelected ? "active" : ""}`}
                   >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
+                    <span style={{ textTransform: "capitalize" }}>{cat === "all" ? "All Products" : cat}</span>
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: "0.72rem",
+                        opacity: isSelected ? 1 : 0.7,
+                        backgroundColor: isSelected ? "rgba(255,255,255,0.25)" : "#f1f5f9",
+                        padding: "2px 6px",
+                        borderRadius: 10,
+                      }}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </header>
 
-      {/* 🔴 HERO PROMOTIONAL BANNER */}
-      <section style={{ maxWidth: 1380, margin: "24px auto 0", padding: "0 24px" }}>
-        <div
-          style={{
-            background: "linear-gradient(120deg, #ffffff 0%, #fff1f2 100%)",
-            border: "1px solid #fecaca",
-            borderRadius: 16,
-            padding: "32px 40px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 24,
-            boxShadow: "0 8px 30px rgba(220, 38, 38, 0.06)",
-          }}
-        >
-          <div style={{ maxWidth: 680 }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                backgroundColor: "#fee2e2",
-                color: "#b91c1c",
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                padding: "4px 12px",
-                borderRadius: 20,
-                marginBottom: 12,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
-              ★ Autonomous Agentic Commerce Flagship
-            </div>
-            <h2 style={{ fontSize: "2.3rem", fontWeight: 800, color: "#0f172a", lineHeight: 1.2, marginBottom: 12 }}>
-              Explore <span style={{ color: "#dc2626" }}>99 Premium Tech</span> Products
-            </h2>
-            <p style={{ color: "#475569", fontSize: "1rem", lineHeight: 1.6, marginBottom: 20 }}>
-              Live real-time inventory from your PostgreSQL database. Browse ultra-fast Laptops, 4K Monitors, Studio Audio, Wireless Mice, GaN Fast Chargers, and checkout seamlessly with <strong>Razorpay Test Mode</strong>.
-            </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button onClick={() => setSelectedCategory("Laptops")} className="btn-red">
-                💻 Shop Laptops ({categoryCounts["laptops"] || 20})
-              </button>
-              <button onClick={() => setSelectedCategory("Accessories")} className="btn-white">
-                🔌 Tech Accessories ({categoryCounts["accessories"] || 19})
-              </button>
-              <button onClick={() => setIsMcpOpen(true)} className="btn-red-outline">
-                🤖 AI Agent Tooling (MCP)
-              </button>
-            </div>
-          </div>
-
+      {/* =========================================================================
+          VIEW 1: FULL-PAGE TRACK & VIEW ALL ORDERS DASHBOARD
+          ========================================================================= */}
+      {activeView === "orders" && (
+        <main style={{ maxWidth: 1380, margin: "28px auto", padding: "0 24px 80px" }}>
+          {/* Header Bar */}
           <div
             style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
               backgroundColor: "#ffffff",
-              padding: "20px 24px",
-              borderRadius: 12,
               border: "1px solid #e2e8f0",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-              <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>PostgreSQL DB: <strong>99 Products Live</strong></span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-              <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Razorpay Checkout: <strong>Active (Test Mode)</strong></span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
-              <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Agent Protocol: <strong>POST :8787/mcp</strong></span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 🔴 FILTER CONTROLS & PRODUCT GRID */}
-      <main style={{ maxWidth: 1380, margin: "24px auto", padding: "0 24px 60px" }}>
-        {/* Controls Bar */}
-        <div
-          style={{
-            backgroundColor: "#ffffff",
-            border: "1px solid #e2e8f0",
-            borderRadius: 12,
-            padding: "14px 20px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 16,
-            marginBottom: 24,
-            boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
-              Showing {displayedProducts.length} of {filteredProducts.length} Products
-            </span>
-            {selectedCategory !== "all" && (
-              <span
-                style={{
-                  backgroundColor: "#fee2e2",
-                  color: "#dc2626",
-                  fontSize: "0.78rem",
-                  fontWeight: 600,
-                  padding: "3px 10px",
-                  borderRadius: 12,
-                }}
-              >
-                Category: {selectedCategory}
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            {/* In Stock toggle */}
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.88rem", color: "#334155", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={inStockOnly}
-                onChange={(e) => setInStockOnly(e.target.checked)}
-                style={{ accentColor: "#dc2626", width: 16, height: 16 }}
-              />
-              In Stock Only
-            </label>
-
-            {/* Sort Dropdown */}
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: "0.88rem", color: "#64748b" }}>Sort by:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #cbd5e1",
-                  backgroundColor: "#ffffff",
-                  fontSize: "0.88rem",
-                  color: "#0f172a",
-                  outline: "none",
-                  cursor: "pointer",
-                }}
-              >
-                <option value="featured">Featured / Default</option>
-                <option value="price-low">Price: Low to High</option>
-                <option value="price-high">Price: High to Low</option>
-                <option value="name-asc">Product Name (A-Z)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Loading State */}
-        {loading ? (
-          <div style={{ textAlign: "center", padding: "80px 0", color: "#64748b" }}>
-            <div style={{ fontSize: "2rem", marginBottom: 12 }}>⏳</div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>Loading products from database...</div>
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "80px 24px",
-              backgroundColor: "#ffffff",
               borderRadius: 16,
-              border: "1px dashed #cbd5e1",
+              padding: "28px 32px",
+              marginBottom: 28,
+              boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 20,
             }}
           >
-            <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>🔍</div>
-            <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>No products match your search</h3>
-            <p style={{ color: "#64748b", marginBottom: 20 }}>Try resetting your search query or selecting another category.</p>
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                setSelectedCategory("all");
-                setInStockOnly(false);
-              }}
-              className="btn-red"
-            >
-              Reset Filters
-            </button>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                <span style={{ fontSize: "1.6rem" }}>📦</span>
+                <h2 style={{ fontSize: "1.8rem", fontWeight: 800, color: "#0f172a" }}>
+                  My Orders & Live Delivery Tracking
+                </h2>
+                <span className="badge-instock" style={{ marginLeft: 6 }}>
+                  Live PostgreSQL Sync
+                </span>
+              </div>
+              <p style={{ color: "#64748b", fontSize: "0.95rem" }}>
+                Real-time record of all orders placed via the storefront or autonomous AI Agents. Click any order to launch the interactive delivery journey!
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <button
+                onClick={() => fetchOrders(true)}
+                disabled={ordersLoading}
+                className="btn-white"
+                style={{ fontSize: "0.85rem" }}
+              >
+                {ordersLoading ? "🔄 Refreshing..." : "🔄 Refresh Orders"}
+              </button>
+
+              <button onClick={() => setActiveView("store")} className="btn-red" style={{ fontSize: "0.85rem" }}>
+                🛍️ Continue Shopping
+              </button>
+            </div>
           </div>
-        ) : (
-          <div>
-            {/* PRODUCT GRID */}
+
+          {/* Orders Filter Tabs */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 24, alignItems: "center" }}>
+            <span style={{ fontSize: "0.88rem", fontWeight: 700, color: "#475569" }}>Filter Orders:</span>
+            {[
+              { id: "all", label: "All Orders" },
+              { id: "paid", label: "Paid / Confirmed" },
+              { id: "pending", label: "Pending" },
+              { id: "shipped", label: "In Transit" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setOrdersFilter(tab.id)}
+                className={`category-pill ${ordersFilter === tab.id ? "active" : ""}`}
+                style={{ fontSize: "0.82rem", padding: "6px 14px" }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Orders List / Empty State */}
+          {ordersLoading && orders.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "80px 0", color: "#64748b" }}>
+              <div style={{ fontSize: "2rem", marginBottom: 12 }}>⏳</div>
+              <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>Loading your orders from database...</div>
+            </div>
+          ) : filteredOrders.length === 0 ? (
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-                gap: 22,
-                marginBottom: 36,
+                textAlign: "center",
+                padding: "80px 24px",
+                backgroundColor: "#ffffff",
+                borderRadius: 16,
+                border: "1px dashed #cbd5e1",
               }}
             >
-              {displayedProducts.map((p, idx) => {
-                const priceInRupees = (p.price / 100).toLocaleString("en-IN", {
-                  maximumFractionDigits: 0,
-                });
-                const originalPrice = Math.round((p.price / 100) * 1.18).toLocaleString("en-IN");
-                const isLowStock = p.inStock && p.quantityAvailable <= 15;
-                const hasDiscount = idx % 2 === 0;
+              <div style={{ fontSize: "3rem", marginBottom: 12 }}>📦</div>
+              <h3 style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a", marginBottom: 8 }}>
+                No orders found
+              </h3>
+              <p style={{ color: "#64748b", marginBottom: 20 }}>
+                You haven't placed any orders yet, or no orders match the selected filter.
+              </p>
+              <button onClick={() => setActiveView("store")} className="btn-red">
+                Explore 99 Tech Products
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {filteredOrders.map((order, idx) => {
+                const isPaid = order.status === "PAID";
+                const isLatest = idx === 0;
 
                 return (
-                  <div key={p.id} className="product-card">
-                    {hasDiscount && <span className="badge-deal">SPECIAL DEAL</span>}
-
+                  <div
+                    key={order.orderId}
+                    style={{
+                      backgroundColor: "#ffffff",
+                      border: isLatest ? "2px solid #fca5a5" : "1px solid #e2e8f0",
+                      borderRadius: 16,
+                      overflow: "hidden",
+                      boxShadow: isLatest ? "0 8px 24px rgba(220, 38, 38, 0.08)" : "0 2px 8px rgba(0,0,0,0.03)",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {/* Order Card Top Bar */}
                     <div
-                      className="product-image-container"
-                      onClick={() => setQuickViewProduct(p)}
-                      style={{ cursor: "pointer" }}
+                      style={{
+                        padding: "16px 24px",
+                        backgroundColor: "#f8fafc",
+                        borderBottom: "1px solid #e2e8f0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        gap: 14,
+                      }}
                     >
-                      <img
-                        src={p.imageUrl || "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=700"}
-                        alt={p.name}
-                        loading="lazy"
-                      />
-                    </div>
-
-                    <div style={{ padding: 18, display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#dc2626", textTransform: "uppercase" }}>
-                            {p.category}
-                          </span>
-
-                          {p.inStock ? (
-                            isLowStock ? (
-                              <span className="badge-lowstock">Only {p.quantityAvailable} left</span>
-                            ) : (
-                              <span className="badge-instock">In Stock</span>
-                            )
-                          ) : (
-                            <span style={{ fontSize: "0.75rem", color: "#dc2626", fontWeight: 700 }}>Out of Stock</span>
-                          )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>
+                            Order ID
+                          </div>
+                          <div style={{ fontFamily: "monospace", fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
+                            {order.orderId}
+                          </div>
                         </div>
 
-                        <h3
-                          onClick={() => setQuickViewProduct(p)}
-                          style={{
-                            fontSize: "1.05rem",
-                            fontWeight: 700,
-                            color: "#0f172a",
-                            marginBottom: 6,
-                            lineHeight: 1.35,
-                            cursor: "pointer",
-                          }}
-                        >
-                          {p.name}
-                        </h3>
-
-                        <p
-                          style={{
-                            fontSize: "0.82rem",
-                            color: "#64748b",
-                            lineHeight: 1.5,
-                            marginBottom: 14,
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {p.description}
-                        </p>
+                        {isLatest && (
+                          <span className="badge-deal" style={{ position: "static", borderRadius: 12 }}>
+                            NEW ORDER
+                          </span>
+                        )}
                       </div>
 
-                      <div>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
-                          <span style={{ fontSize: "1.3rem", fontWeight: 800, color: "#dc2626" }}>
-                            ₹{priceInRupees}
-                          </span>
-                          <span style={{ fontSize: "0.85rem", color: "#94a3b8", textDecoration: "line-through" }}>
-                            ₹{originalPrice}
-                          </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>
+                            Order Date
+                          </div>
+                          <div style={{ fontSize: "0.88rem", fontWeight: 600, color: "#334155" }}>
+                            {new Date(order.createdAt).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })}{" "}
+                            at{" "}
+                            {new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </div>
                         </div>
 
-                        <div style={{ display: "flex", gap: 8 }}>
-                          <button
-                            onClick={(e) => addToCart(p, e)}
-                            disabled={!p.inStock || p.quantityAvailable <= 0}
-                            className="btn-red"
-                            style={{
-                              flex: 1,
-                              opacity: p.inStock ? 1 : 0.5,
-                              cursor: p.inStock ? "pointer" : "not-allowed",
-                              fontSize: "0.85rem",
-                              padding: "9px 12px",
-                            }}
-                          >
-                            ➕ Add to Cart
-                          </button>
-                          <button
-                            onClick={() => setQuickViewProduct(p)}
-                            className="btn-white"
-                            title="Quick View"
-                            style={{ padding: "9px 12px", fontSize: "0.9rem" }}
-                          >
-                            👁
-                          </button>
+                        <div>
+                          <div style={{ fontSize: "0.75rem", color: "#64748b", textTransform: "uppercase", fontWeight: 700 }}>
+                            Total Paid
+                          </div>
+                          <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#dc2626" }}>
+                            ₹{(order.totalAmount / 100).toLocaleString("en-IN")}
+                          </div>
                         </div>
+
+                        <div>
+                          <span
+                            className={isPaid ? "badge-instock" : "badge-lowstock"}
+                            style={{ padding: "6px 14px", fontSize: "0.82rem", textTransform: "uppercase" }}
+                          >
+                            {order.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Order Card Content */}
+                    <div style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 }}>
+                      {/* Items previews */}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1, minWidth: 280 }}>
+                        {order.items.map((it, itemIdx) => {
+                          const img = getDisplayImage(it.name, "", it.imageUrl);
+                          return (
+                            <div key={itemIdx} style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                              <img
+                                src={img}
+                                alt={it.name}
+                                style={{
+                                  width: 60,
+                                  height: 60,
+                                  borderRadius: 8,
+                                  objectFit: "cover",
+                                  border: "1px solid #e2e8f0",
+                                  backgroundColor: "#f8fafc",
+                                }}
+                              />
+                              <div>
+                                <h4 style={{ fontSize: "1rem", fontWeight: 700, color: "#0f172a", marginBottom: 4 }}>
+                                  {it.name}
+                                </h4>
+                                <div style={{ fontSize: "0.82rem", color: "#64748b" }}>
+                                  Qty: <strong>{it.quantity}</strong> × ₹{(it.unitPrice / 100).toLocaleString("en-IN")}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Payment & Recipient Info */}
+                      <div style={{ minWidth: 240, fontSize: "0.85rem", color: "#475569", borderLeft: "1px solid #f1f5f9", paddingLeft: 20 }}>
+                        <div><strong>Recipient:</strong> {order.customerName || "Alex Mercer"}</div>
+                        <div><strong>Email:</strong> {order.customerEmail}</div>
+                        {order.razorpayPaymentId && (
+                          <div style={{ marginTop: 4, color: "#16a34a", fontSize: "0.8rem" }}>
+                            ✓ Razorpay Ref: <code style={{ color: "#0f172a" }}>{order.razorpayPaymentId}</code>
+                          </div>
+                        )}
+                        <div style={{ marginTop: 6, fontSize: "0.78rem", color: "#64748b" }}>
+                          🚚 Carrier: BlueDart Express (BD-{order.orderId.slice(-6).toUpperCase()})
+                        </div>
+                      </div>
+
+                      {/* Action Button: Launch Live Tracking Animation */}
+                      <div>
+                        <button
+                          onClick={() => openOrderTracker(order)}
+                          className="btn-red"
+                          style={{
+                            padding: "12px 22px",
+                            fontSize: "0.9rem",
+                            borderRadius: 10,
+                            boxShadow: "0 4px 14px rgba(220, 38, 38, 0.25)",
+                          }}
+                        >
+                          🚚 View Live Tracking Animation
+                        </button>
                       </div>
                     </div>
                   </div>
                 );
               })}
             </div>
+          )}
+        </main>
+      )}
 
-            {/* 🔴 LOAD MORE PAGINATION SECTION */}
+      {/* =========================================================================
+          VIEW 2: STOREFRONT CATALOG VIEW
+          ========================================================================= */}
+      {activeView === "store" && (
+        <div>
+          {/* Hero Banner */}
+          <section style={{ maxWidth: 1380, margin: "24px auto 0", padding: "0 24px" }}>
             <div
               style={{
+                background: "linear-gradient(120deg, #ffffff 0%, #fff1f2 100%)",
+                border: "1px solid #fecaca",
+                borderRadius: 16,
+                padding: "32px 40px",
                 display: "flex",
-                flexDirection: "column",
+                justifyContent: "space-between",
                 alignItems: "center",
-                justifyContent: "center",
-                padding: "24px 0 12px",
-                gap: 14,
+                flexWrap: "wrap",
+                gap: 24,
+                boxShadow: "0 8px 30px rgba(220, 38, 38, 0.06)",
               }}
             >
-              <div style={{ width: "100%", maxWidth: 360, textAlign: "center" }}>
-                <div style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: 8, fontWeight: 500 }}>
-                  Showing <strong style={{ color: "#0f172a" }}>{displayedProducts.length}</strong> of{" "}
-                  <strong style={{ color: "#0f172a" }}>{filteredProducts.length}</strong> products
-                </div>
+              <div style={{ maxWidth: 680 }}>
                 <div
                   style={{
-                    width: "100%",
-                    height: 6,
-                    backgroundColor: "#e2e8f0",
-                    borderRadius: 3,
-                    overflow: "hidden",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    backgroundColor: "#fee2e2",
+                    color: "#b91c1c",
+                    fontSize: "0.75rem",
+                    fontWeight: 700,
+                    padding: "4px 12px",
+                    borderRadius: 20,
+                    marginBottom: 12,
+                    letterSpacing: "0.04em",
+                    textTransform: "uppercase",
                   }}
                 >
-                  <div
-                    style={{
-                      height: "100%",
-                      width: `${(displayedProducts.length / filteredProducts.length) * 100}%`,
-                      backgroundColor: "#dc2626",
-                      borderRadius: 3,
-                      transition: "width 0.3s ease",
-                    }}
-                  ></div>
+                  ★ Autonomous Agentic Commerce Flagship
+                </div>
+                <h2 style={{ fontSize: "2.3rem", fontWeight: 800, color: "#0f172a", lineHeight: 1.2, marginBottom: 12 }}>
+                  Explore <span style={{ color: "#dc2626" }}>99 Premium Tech</span> Products
+                </h2>
+                <p style={{ color: "#475569", fontSize: "1rem", lineHeight: 1.6, marginBottom: 20 }}>
+                  Live real-time inventory from your PostgreSQL database. Browse ultra-fast Laptops, 4K Monitors, Studio Audio, Wireless Mice, GaN Fast Chargers, and checkout seamlessly with <strong>Razorpay Test Mode</strong>.
+                </p>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  <button onClick={() => setSelectedCategory("Laptops")} className="btn-red">
+                    💻 Shop Laptops ({categoryCounts["laptops"] || 20})
+                  </button>
+                  <button onClick={() => setSelectedCategory("Accessories")} className="btn-white">
+                    🔌 Tech Accessories ({categoryCounts["accessories"] || 19})
+                  </button>
+                  <button onClick={() => setActiveView("orders")} className="btn-red-outline">
+                    📦 Track My Orders ({orders.length})
+                  </button>
                 </div>
               </div>
 
-              {visibleCount < filteredProducts.length ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 14,
+                  backgroundColor: "#ffffff",
+                  padding: "20px 24px",
+                  borderRadius: 12,
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>PostgreSQL DB: <strong>99 Products Live</strong></span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Razorpay Checkout: <strong>Active (Test Mode)</strong></span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ color: "#16a34a", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{ fontSize: "0.9rem", color: "#334155", fontWeight: 600 }}>Order History: <strong>{orders.length} Orders Stored</strong></span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Product Grid Section */}
+          <main style={{ maxWidth: 1380, margin: "24px auto", padding: "0 24px 60px" }}>
+            {/* Controls Bar */}
+            <div
+              style={{
+                backgroundColor: "#ffffff",
+                border: "1px solid #e2e8f0",
+                borderRadius: 12,
+                padding: "14px 20px",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 16,
+                marginBottom: 24,
+                boxShadow: "0 1px 3px rgba(0,0,0,0.02)",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>
+                  Showing {displayedProducts.length} of {filteredProducts.length} Products
+                </span>
+                {selectedCategory !== "all" && (
+                  <span
+                    style={{
+                      backgroundColor: "#fee2e2",
+                      color: "#dc2626",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      padding: "3px 10px",
+                      borderRadius: 12,
+                    }}
+                  >
+                    Category: {selectedCategory}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.88rem", color: "#334155", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={inStockOnly}
+                    onChange={(e) => setInStockOnly(e.target.checked)}
+                    style={{ accentColor: "#dc2626", width: 16, height: 16 }}
+                  />
+                  In Stock Only
+                </label>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: "0.88rem", color: "#64748b" }}>Sort by:</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      border: "1px solid #cbd5e1",
+                      backgroundColor: "#ffffff",
+                      fontSize: "0.88rem",
+                      color: "#0f172a",
+                      outline: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="featured">Featured / Default</option>
+                    <option value="price-low">Price: Low to High</option>
+                    <option value="price-high">Price: High to Low</option>
+                    <option value="name-asc">Product Name (A-Z)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Grid */}
+            {loading ? (
+              <div style={{ textAlign: "center", padding: "80px 0", color: "#64748b" }}>
+                <div style={{ fontSize: "2rem", marginBottom: 12 }}>⏳</div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 600 }}>Loading products from database...</div>
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <div
+                style={{
+                  textAlign: "center",
+                  padding: "80px 24px",
+                  backgroundColor: "#ffffff",
+                  borderRadius: 16,
+                  border: "1px dashed #cbd5e1",
+                }}
+              >
+                <div style={{ fontSize: "2.5rem", marginBottom: 12 }}>🔍</div>
+                <h3 style={{ fontSize: "1.2rem", fontWeight: 700, color: "#0f172a", marginBottom: 8 }}>No products match your search</h3>
+                <p style={{ color: "#64748b", marginBottom: 20 }}>Try resetting your search query or selecting another category.</p>
                 <button
-                  onClick={handleLoadMore}
-                  disabled={loadingMore}
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSelectedCategory("all");
+                    setInStockOnly(false);
+                  }}
                   className="btn-red"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div
                   style={{
-                    padding: "13px 36px",
-                    fontSize: "0.95rem",
-                    borderRadius: 30,
-                    boxShadow: "0 4px 16px rgba(220, 38, 38, 0.25)",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                    gap: 22,
+                    marginBottom: 36,
                   }}
                 >
-                  {loadingMore ? (
-                    <span>⏳ Loading more...</span>
-                  ) : (
-                    <span>⬇️ Load More Products ({filteredProducts.length - visibleCount} more)</span>
-                  )}
-                </button>
-              ) : (
+                  {displayedProducts.map((p, idx) => {
+                    const priceInRupees = (p.price / 100).toLocaleString("en-IN", {
+                      maximumFractionDigits: 0,
+                    });
+                    const originalPrice = Math.round((p.price / 100) * 1.18).toLocaleString("en-IN");
+                    const isLowStock = p.inStock && p.quantityAvailable <= 15;
+                    const hasDiscount = idx % 2 === 0;
+                    const img = getDisplayImage(p.name, p.category, p.imageUrl);
+
+                    return (
+                      <div key={p.id} className="product-card">
+                        {hasDiscount && <span className="badge-deal">SPECIAL DEAL</span>}
+
+                        <div
+                          className="product-image-container"
+                          onClick={() => setQuickViewProduct(p)}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <img src={img} alt={p.name} loading="lazy" />
+                        </div>
+
+                        <div style={{ padding: 18, display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
+                          <div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                              <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#dc2626", textTransform: "uppercase" }}>
+                                {p.category}
+                              </span>
+
+                              {p.inStock ? (
+                                isLowStock ? (
+                                  <span className="badge-lowstock">Only {p.quantityAvailable} left</span>
+                                ) : (
+                                  <span className="badge-instock">In Stock</span>
+                                )
+                              ) : (
+                                <span style={{ fontSize: "0.75rem", color: "#dc2626", fontWeight: 700 }}>Out of Stock</span>
+                              )}
+                            </div>
+
+                            <h3
+                              onClick={() => setQuickViewProduct(p)}
+                              style={{
+                                fontSize: "1.05rem",
+                                fontWeight: 700,
+                                color: "#0f172a",
+                                marginBottom: 6,
+                                lineHeight: 1.35,
+                                cursor: "pointer",
+                              }}
+                            >
+                              {p.name}
+                            </h3>
+
+                            <p
+                              style={{
+                                fontSize: "0.82rem",
+                                color: "#64748b",
+                                lineHeight: 1.5,
+                                marginBottom: 14,
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {p.description}
+                            </p>
+                          </div>
+
+                          <div>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+                              <span style={{ fontSize: "1.3rem", fontWeight: 800, color: "#dc2626" }}>
+                                ₹{priceInRupees}
+                              </span>
+                              <span style={{ fontSize: "0.85rem", color: "#94a3b8", textDecoration: "line-through" }}>
+                                ₹{originalPrice}
+                              </span>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                onClick={(e) => addToCart(p, e)}
+                                disabled={!p.inStock || p.quantityAvailable <= 0}
+                                className="btn-red"
+                                style={{
+                                  flex: 1,
+                                  opacity: p.inStock ? 1 : 0.5,
+                                  cursor: p.inStock ? "pointer" : "not-allowed",
+                                  fontSize: "0.85rem",
+                                  padding: "9px 12px",
+                                }}
+                              >
+                                ➕ Add to Cart
+                              </button>
+                              <button
+                                onClick={() => setQuickViewProduct(p)}
+                                className="btn-white"
+                                title="Quick View"
+                                style={{ padding: "9px 12px", fontSize: "0.9rem" }}
+                              >
+                                👁
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Progressive Load More Section */}
                 <div
                   style={{
                     display: "flex",
+                    flexDirection: "column",
                     alignItems: "center",
-                    gap: 8,
-                    color: "#16a34a",
-                    fontWeight: 600,
-                    fontSize: "0.9rem",
-                    backgroundColor: "#f0fdf4",
-                    border: "1px solid #bbf7d0",
-                    padding: "8px 20px",
-                    borderRadius: 20,
+                    justifyContent: "center",
+                    padding: "24px 0 12px",
+                    gap: 14,
                   }}
                 >
-                  <span>✓ You've viewed all {filteredProducts.length} products</span>
-                  <button
-                    onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-                    style={{
-                      border: "none",
-                      background: "none",
-                      color: "#dc2626",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                      marginLeft: 6,
-                    }}
-                  >
-                    Back to Top ↑
-                  </button>
+                  <div style={{ width: "100%", maxWidth: 360, textAlign: "center" }}>
+                    <div style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: 8, fontWeight: 500 }}>
+                      Showing <strong style={{ color: "#0f172a" }}>{displayedProducts.length}</strong> of{" "}
+                      <strong style={{ color: "#0f172a" }}>{filteredProducts.length}</strong> products
+                    </div>
+                    <div
+                      style={{
+                        width: "100%",
+                        height: 6,
+                        backgroundColor: "#e2e8f0",
+                        borderRadius: 3,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${(displayedProducts.length / filteredProducts.length) * 100}%`,
+                          backgroundColor: "#dc2626",
+                          borderRadius: 3,
+                          transition: "width 0.3s ease",
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  {visibleCount < filteredProducts.length ? (
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="btn-red"
+                      style={{
+                        padding: "13px 36px",
+                        fontSize: "0.95rem",
+                        borderRadius: 30,
+                        boxShadow: "0 4px 16px rgba(220, 38, 38, 0.25)",
+                      }}
+                    >
+                      {loadingMore ? (
+                        <span>⏳ Loading more...</span>
+                      ) : (
+                        <span>⬇️ Load More Products ({filteredProducts.length - visibleCount} more)</span>
+                      )}
+                    </button>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        color: "#16a34a",
+                        fontWeight: 600,
+                        fontSize: "0.9rem",
+                        backgroundColor: "#f0fdf4",
+                        border: "1px solid #bbf7d0",
+                        padding: "8px 20px",
+                        borderRadius: 20,
+                      }}
+                    >
+                      <span>✓ You've viewed all {filteredProducts.length} products</span>
+                      <button
+                        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                        style={{
+                          border: "none",
+                          background: "none",
+                          color: "#dc2626",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          textDecoration: "underline",
+                          marginLeft: 6,
+                        }}
+                      >
+                        Back to Top ↑
+                      </button>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
+            )}
+          </main>
+        </div>
+      )}
+
+      {/* =========================================================================
+          VIEW 3: AGENT MCP EXPLORER VIEW
+          ========================================================================= */}
+      {activeView === "mcp" && (
+        <main style={{ maxWidth: 1380, margin: "28px auto", padding: "0 24px 80px" }}>
+          <div
+            style={{
+              backgroundColor: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 16,
+              padding: "32px",
+              marginBottom: 28,
+              boxShadow: "0 2px 10px rgba(0,0,0,0.03)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <h2 style={{ fontSize: "1.8rem", fontWeight: 800, color: "#0f172a" }}>
+                  🤖 Autonomous Agentic Commerce MCP Server
+                </h2>
+                <p style={{ color: "#64748b", fontSize: "0.95rem", marginTop: 4 }}>
+                  Endpoint: <code>http://localhost:8787/mcp</code> (POST) • Transport: Streamable HTTP
+                </p>
+              </div>
+              <span className="badge-instock" style={{ fontSize: "0.85rem", padding: "6px 14px" }}>
+                8 Tools Operational
+              </span>
             </div>
+            <p style={{ color: "#334155", lineHeight: 1.6 }}>
+              Any MCP-compatible AI agent (Claude, Cursor, custom LangChain/LangGraph orchestrators) can query catalog items, place orders, and check inventory using these standard tools. All purchases update PostgreSQL in real time!
+            </p>
           </div>
-        )}
-      </main>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+            {[
+              { name: "search_products", desc: "Search catalog across 99 database products by keywords." },
+              { name: "get_product", desc: "Fetch complete product specs and real-time inventory." },
+              { name: "get_products_by_category", desc: "Filter by Laptops, Accessories, Audio, etc." },
+              { name: "check_inventory", desc: "Real-time stock verification before agent checkout." },
+              { name: "create_order", desc: "Reserve stock and generate Razorpay test order." },
+              { name: "get_order_status", desc: "Query status of an order by ID." },
+              { name: "cancel_order", desc: "Cancel unshipped order and restock inventory." },
+              { name: "get_customer_orders", desc: "List order history for a customer." },
+            ].map((tool) => (
+              <div
+                key={tool.name}
+                style={{
+                  border: "1px solid #e2e8f0",
+                  padding: 20,
+                  borderRadius: 12,
+                  backgroundColor: "#ffffff",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.02)",
+                }}
+              >
+                <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#dc2626", fontSize: "1rem", marginBottom: 6 }}>
+                  {tool.name}
+                </div>
+                <div style={{ fontSize: "0.85rem", color: "#64748b", lineHeight: 1.5 }}>{tool.desc}</div>
+              </div>
+            ))}
+          </div>
+        </main>
+      )}
 
       {/* 🔴 SLIDE-OUT CART DRAWER */}
       {isCartOpen && (
@@ -1064,7 +1420,7 @@ export default function Storefront() {
               </button>
             </div>
 
-            {/* Cart Items */}
+            {/* Items */}
             <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
               {cart.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 0", color: "#64748b" }}>
@@ -1088,7 +1444,7 @@ export default function Storefront() {
                     }}
                   >
                     <img
-                      src={item.product.imageUrl || "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=700"}
+                      src={getDisplayImage(item.product.name, item.product.category, item.product.imageUrl)}
                       alt={item.product.name}
                       style={{ width: 64, height: 64, borderRadius: 8, objectFit: "cover", backgroundColor: "#f8fafc" }}
                     />
@@ -1140,7 +1496,7 @@ export default function Storefront() {
               )}
             </div>
 
-            {/* Cart Footer */}
+            {/* Footer */}
             {cart.length > 0 && (
               <div style={{ padding: "20px 24px", borderTop: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                 <div style={{ marginBottom: 16 }}>
@@ -1261,7 +1617,7 @@ export default function Storefront() {
 
             <div style={{ flex: "1 1 300px", minHeight: 320, backgroundColor: "#f8fafc" }}>
               <img
-                src={quickViewProduct.imageUrl || "https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=700"}
+                src={getDisplayImage(quickViewProduct.name, quickViewProduct.category, quickViewProduct.imageUrl)}
                 alt={quickViewProduct.name}
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
@@ -1309,7 +1665,7 @@ export default function Storefront() {
       )}
 
       {/* 🔴 🚚 LIVE ANIMATED ORDER TRACKER MODAL */}
-      {isTrackerOpen && (
+      {isTrackingModalOpen && activeTracking && (
         <div
           style={{
             position: "fixed",
@@ -1337,7 +1693,7 @@ export default function Storefront() {
               border: "1px solid #fee2e2",
             }}
           >
-            {/* Modal Top Header Banner */}
+            {/* Top Red Header */}
             <div
               style={{
                 background: "linear-gradient(135deg, #b91c1c 0%, #dc2626 100%)",
@@ -1347,7 +1703,7 @@ export default function Storefront() {
               }}
             >
               <button
-                onClick={() => setIsTrackerOpen(false)}
+                onClick={() => setIsTrackingModalOpen(false)}
                 style={{
                   position: "absolute",
                   top: 20,
@@ -1394,435 +1750,322 @@ export default function Storefront() {
                 </div>
               </div>
 
-              {activeTracking && (
-                <div
-                  style={{
-                    marginTop: 14,
-                    display: "flex",
-                    gap: 12,
-                    flexWrap: "wrap",
-                    fontSize: "0.8rem",
-                    backgroundColor: "rgba(0,0,0,0.15)",
-                    padding: "8px 16px",
-                    borderRadius: 8,
-                  }}
-                >
-                  <span>Order ID: <strong style={{ fontFamily: "monospace" }}>{activeTracking.orderId}</strong></span>
-                  <span>•</span>
-                  <span>Payment Ref: <strong style={{ fontFamily: "monospace" }}>{activeTracking.razorpayPaymentId || "Captured"}</strong></span>
-                  <span>•</span>
-                  <span>Placed At: <strong>{activeTracking.placedAt}</strong></span>
-                </div>
-              )}
+              <div
+                style={{
+                  marginTop: 14,
+                  display: "flex",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  fontSize: "0.8rem",
+                  backgroundColor: "rgba(0,0,0,0.15)",
+                  padding: "8px 16px",
+                  borderRadius: 8,
+                }}
+              >
+                <span>Order ID: <strong style={{ fontFamily: "monospace" }}>{activeTracking.orderId}</strong></span>
+                <span>•</span>
+                <span>Payment Ref: <strong style={{ fontFamily: "monospace" }}>{activeTracking.razorpayPaymentId || "Captured"}</strong></span>
+                <span>•</span>
+                <span>Placed At: <strong>{activeTracking.placedAt}</strong></span>
+              </div>
             </div>
 
-            {/* Modal Body */}
+            {/* Stepper Timeline & Details */}
             <div style={{ padding: "28px 32px" }}>
-              {/* Lookup Form if user opened manually */}
-              {!activeTracking ? (
-                <div>
-                  <h4 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", marginBottom: 6 }}>
-                    Track an Existing Order
-                  </h4>
-                  <p style={{ fontSize: "0.88rem", color: "#64748b", marginBottom: 20 }}>
-                    Enter the Order ID generated during checkout or by your AI Agent to see live delivery tracking.
-                  </p>
-                  <form onSubmit={handleTrackQuery} style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-                    <input
-                      type="text"
-                      placeholder="Paste Order ID (e.g. cmtl3sd7c...)"
-                      value={trackOrderId}
-                      onChange={(e) => setTrackOrderId(e.target.value)}
+              {/* Animated Journey Timeline */}
+              <div
+                style={{
+                  backgroundColor: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 16,
+                  padding: "24px 20px",
+                  marginBottom: 24,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span className="animated-truck" style={{ fontSize: "1.4rem" }}>🚚</span>
+                    <h4 style={{ fontSize: "1rem", fontWeight: 800, color: "#0f172a" }}>
+                      Live Package Journey
+                    </h4>
+                  </div>
+
+                  <button
+                    onClick={advanceStep}
+                    style={{
+                      fontSize: "0.78rem",
+                      fontWeight: 700,
+                      backgroundColor: "#ffffff",
+                      border: "1px solid #cbd5e1",
+                      color: "#334155",
+                      padding: "5px 12px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Simulate Next Stage ⏭️
+                  </button>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 20,
+                      left: 30,
+                      right: 30,
+                      height: 4,
+                      backgroundColor: "#e2e8f0",
+                      zIndex: 1,
+                    }}
+                  >
+                    <div
                       style={{
-                        flex: 1,
-                        padding: "11px 14px",
-                        borderRadius: 8,
-                        border: "1px solid #cbd5e1",
-                        fontSize: "0.9rem",
+                        height: "100%",
+                        width:
+                          activeTracking.currentStep === 1
+                            ? "0%"
+                            : activeTracking.currentStep === 2
+                            ? "33%"
+                            : activeTracking.currentStep === 3
+                            ? "66%"
+                            : "100%",
+                        backgroundColor: "#dc2626",
+                        transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
                       }}
-                    />
-                    <button type="submit" disabled={trackLoading} className="btn-red">
-                      {trackLoading ? "Searching..." : "Track Order"}
-                    </button>
-                  </form>
+                      className={activeTracking.currentStep < 4 ? "dashed-progress-line" : ""}
+                    ></div>
+                  </div>
+
+                  {/* Step 1 */}
+                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: "50%",
+                        backgroundColor: activeTracking.currentStep >= 1 ? "#16a34a" : "#cbd5e1",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.1rem",
+                        fontWeight: 700,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}
+                      className={activeTracking.currentStep === 1 ? "step-node-active" : "step-node-done"}
+                    >
+                      ✓
+                    </div>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                      Payment Verified
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>Instant</span>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 100 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: "50%",
+                        backgroundColor:
+                          activeTracking.currentStep > 2
+                            ? "#16a34a"
+                            : activeTracking.currentStep === 2
+                            ? "#dc2626"
+                            : "#cbd5e1",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.1rem",
+                        fontWeight: 700,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}
+                      className={activeTracking.currentStep === 2 ? "step-node-active" : activeTracking.currentStep > 2 ? "step-node-done" : ""}
+                    >
+                      📦
+                    </div>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                      Packing & QC
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                      {activeTracking.currentStep === 2 ? "In Progress..." : "Completed"}
+                    </span>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 110 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: "50%",
+                        backgroundColor:
+                          activeTracking.currentStep > 3
+                            ? "#16a34a"
+                            : activeTracking.currentStep === 3
+                            ? "#dc2626"
+                            : "#cbd5e1",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.1rem",
+                        fontWeight: 700,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}
+                      className={activeTracking.currentStep === 3 ? "step-node-active" : activeTracking.currentStep > 3 ? "step-node-done" : ""}
+                    >
+                      🚚
+                    </div>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                      Dispatched
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                      {activeTracking.currentStep === 3 ? "On the Way" : activeTracking.currentStep > 3 ? "Dispatched" : "Pending"}
+                    </span>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: "50%",
+                        backgroundColor: activeTracking.currentStep === 4 ? "#16a34a" : "#cbd5e1",
+                        color: "#ffffff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "1.1rem",
+                        fontWeight: 700,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}
+                      className={activeTracking.currentStep === 4 ? "step-node-done" : ""}
+                    >
+                      🏠
+                    </div>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
+                      Delivered
+                    </span>
+                    <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
+                      {activeTracking.currentStep === 4 ? "Delivered!" : "Estimated: Tomorrow"}
+                    </span>
+                  </div>
                 </div>
-              ) : (
+              </div>
+
+              {/* Delivery Partner Banner */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 16,
+                  backgroundColor: "#fff1f2",
+                  border: "1px solid #fecaca",
+                  padding: "16px 20px",
+                  borderRadius: 12,
+                  marginBottom: 24,
+                }}
+              >
                 <div>
-                  {/* 🚚 ANIMATED STEP TRACKER */}
-                  <div
-                    style={{
-                      backgroundColor: "#f8fafc",
-                      border: "1px solid #e2e8f0",
-                      borderRadius: 16,
-                      padding: "24px 20px",
-                      marginBottom: 24,
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span className="animated-truck" style={{ fontSize: "1.4rem" }}>🚚</span>
-                        <h4 style={{ fontSize: "1rem", fontWeight: 800, color: "#0f172a" }}>
-                          Live Package Journey
-                        </h4>
-                      </div>
-
-                      <button
-                        onClick={advanceStep}
-                        style={{
-                          fontSize: "0.78rem",
-                          fontWeight: 700,
-                          backgroundColor: "#ffffff",
-                          border: "1px solid #cbd5e1",
-                          color: "#334155",
-                          padding: "5px 12px",
-                          borderRadius: 6,
-                          cursor: "pointer",
-                        }}
-                      >
-                        Simulate Next Stage ⏭️
-                      </button>
-                    </div>
-
-                    {/* Stepper Timeline */}
-                    <div style={{ position: "relative", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      {/* Connecting Line */}
-                      <div
-                        style={{
-                          position: "absolute",
-                          top: 20,
-                          left: 30,
-                          right: 30,
-                          height: 4,
-                          backgroundColor: "#e2e8f0",
-                          zIndex: 1,
-                        }}
-                      >
-                        <div
-                          style={{
-                            height: "100%",
-                            width:
-                              activeTracking.currentStep === 1
-                                ? "0%"
-                                : activeTracking.currentStep === 2
-                                ? "33%"
-                                : activeTracking.currentStep === 3
-                                ? "66%"
-                                : "100%",
-                            backgroundColor: "#dc2626",
-                            transition: "width 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
-                          }}
-                          className={activeTracking.currentStep < 4 ? "dashed-progress-line" : ""}
-                        ></div>
-                      </div>
-
-                      {/* Step 1: Order Verified */}
-                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: "50%",
-                            backgroundColor: activeTracking.currentStep >= 1 ? "#16a34a" : "#cbd5e1",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.1rem",
-                            fontWeight: 700,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                          }}
-                          className={activeTracking.currentStep === 1 ? "step-node-active" : "step-node-done"}
-                        >
-                          ✓
-                        </div>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
-                          Payment Verified
-                        </span>
-                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>Instant</span>
-                      </div>
-
-                      {/* Step 2: Processing & Packed */}
-                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 100 }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: "50%",
-                            backgroundColor:
-                              activeTracking.currentStep > 2
-                                ? "#16a34a"
-                                : activeTracking.currentStep === 2
-                                ? "#dc2626"
-                                : "#cbd5e1",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.1rem",
-                            fontWeight: 700,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                          }}
-                          className={activeTracking.currentStep === 2 ? "step-node-active" : activeTracking.currentStep > 2 ? "step-node-done" : ""}
-                        >
-                          📦
-                        </div>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
-                          Packing & QC
-                        </span>
-                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
-                          {activeTracking.currentStep === 2 ? "In Progress..." : "Completed"}
-                        </span>
-                      </div>
-
-                      {/* Step 3: In Transit */}
-                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 110 }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: "50%",
-                            backgroundColor:
-                              activeTracking.currentStep > 3
-                                ? "#16a34a"
-                                : activeTracking.currentStep === 3
-                                ? "#dc2626"
-                                : "#cbd5e1",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.1rem",
-                            fontWeight: 700,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                          }}
-                          className={activeTracking.currentStep === 3 ? "step-node-active" : activeTracking.currentStep > 3 ? "step-node-done" : ""}
-                        >
-                          🚚
-                        </div>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
-                          Dispatched
-                        </span>
-                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
-                          {activeTracking.currentStep === 3 ? "On the Way" : activeTracking.currentStep > 3 ? "Dispatched" : "Pending"}
-                        </span>
-                      </div>
-
-                      {/* Step 4: Delivered */}
-                      <div style={{ position: "relative", zIndex: 2, display: "flex", flexDirection: "column", alignItems: "center", width: 90 }}>
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: "50%",
-                            backgroundColor: activeTracking.currentStep === 4 ? "#16a34a" : "#cbd5e1",
-                            color: "#ffffff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: "1.1rem",
-                            fontWeight: 700,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-                          }}
-                          className={activeTracking.currentStep === 4 ? "step-node-done" : ""}
-                        >
-                          🏠
-                        </div>
-                        <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#0f172a", marginTop: 8, textAlign: "center" }}>
-                          Delivered
-                        </span>
-                        <span style={{ fontSize: "0.7rem", color: "#64748b" }}>
-                          {activeTracking.currentStep === 4 ? "Delivered!" : "Estimated: Tomorrow"}
-                        </span>
-                      </div>
-                    </div>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#b91c1c", textTransform: "uppercase" }}>
+                    Delivery Partner
                   </div>
-
-                  {/* Courier & Live Location Banner */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: 16,
-                      backgroundColor: "#fff1f2",
-                      border: "1px solid #fecaca",
-                      padding: "16px 20px",
-                      borderRadius: 12,
-                      marginBottom: 24,
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#b91c1c", textTransform: "uppercase" }}>
-                        Delivery Partner
-                      </div>
-                      <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a" }}>
-                        {activeTracking.carrier} • <span style={{ fontFamily: "monospace" }}>{activeTracking.trackingNumber}</span>
-                      </div>
-                      <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
-                        Latest Status: Package scanned at Indiranagar Delivery Hub
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Expected Delivery</div>
-                      <div style={{ fontSize: "1rem", fontWeight: 800, color: "#dc2626" }}>
-                        {activeTracking.estimatedDelivery}
-                      </div>
-                    </div>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 800, color: "#0f172a" }}>
+                    {activeTracking.carrier} • <span style={{ fontFamily: "monospace" }}>{activeTracking.trackingNumber}</span>
                   </div>
+                  <div style={{ fontSize: "0.8rem", color: "#64748b" }}>
+                    Latest Status: Package scanned at Indiranagar Fulfillment Center
+                  </div>
+                </div>
 
-                  {/* Two Columns: Ordered Items & Shipping Details */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
-                    {/* Items List */}
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
-                      <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
-                        Items in this Order ({activeTracking.items.length})
-                      </h5>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 180, overflowY: "auto" }}>
-                        {activeTracking.items.map((it, idx) => (
-                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                            {it.imageUrl && (
-                              <img
-                                src={it.imageUrl}
-                                alt={it.name}
-                                style={{ width: 42, height: 42, borderRadius: 6, objectFit: "cover" }}
-                              />
-                            )}
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#0f172a" }}>{it.name}</div>
-                              <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
-                                Qty: {it.quantity} × ₹{(it.unitPrice / 100).toLocaleString("en-IN")}
-                              </div>
-                            </div>
-                            <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#dc2626" }}>
-                              ₹{((it.unitPrice * it.quantity) / 100).toLocaleString("en-IN")}
-                            </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "0.75rem", color: "#64748b" }}>Expected Delivery</div>
+                  <div style={{ fontSize: "1rem", fontWeight: 800, color: "#dc2626" }}>
+                    {activeTracking.estimatedDelivery}
+                  </div>
+                </div>
+              </div>
+
+              {/* Items & Shipping Info */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 24 }}>
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
+                  <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
+                    Items in this Order ({activeTracking.items.length})
+                  </h5>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 180, overflowY: "auto" }}>
+                    {activeTracking.items.map((it, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <img
+                          src={getDisplayImage(it.name, "", it.imageUrl)}
+                          alt={it.name}
+                          style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", backgroundColor: "#f8fafc" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#0f172a" }}>{it.name}</div>
+                          <div style={{ fontSize: "0.75rem", color: "#64748b" }}>
+                            Qty: {it.quantity} × ₹{(it.unitPrice / 100).toLocaleString("en-IN")}
                           </div>
-                        ))}
-                      </div>
-
-                      <div style={{ borderTop: "1px solid #f1f5f9", marginTop: 12, paddingTop: 12, display: "flex", justifyContent: "space-between", fontWeight: 800 }}>
-                        <span>Total Paid:</span>
-                        <span style={{ color: "#dc2626", fontSize: "1.05rem" }}>
-                          ₹{(activeTracking.totalAmount / 100).toLocaleString("en-IN")}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Shipping Address */}
-                    <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
-                      <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
-                        Shipping & Recipient Details
-                      </h5>
-                      <div style={{ fontSize: "0.85rem", color: "#334155", lineHeight: 1.6 }}>
-                        <div><strong>Recipient:</strong> {activeTracking.customerName}</div>
-                        <div><strong>Email:</strong> {activeTracking.customerEmail}</div>
-                        <div><strong>Address:</strong> {activeTracking.customerAddress}</div>
-                        <div style={{ marginTop: 8, fontSize: "0.8rem", color: "#16a34a" }}>
-                          ✓ Order status updates sent to {activeTracking.customerEmail}
+                        </div>
+                        <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#dc2626" }}>
+                          ₹{((it.unitPrice * it.quantity) / 100).toLocaleString("en-IN")}
                         </div>
                       </div>
+                    ))}
+                  </div>
+
+                  <div style={{ borderTop: "1px solid #f1f5f9", marginTop: 12, paddingTop: 12, display: "flex", justifyContent: "space-between", fontWeight: 800 }}>
+                    <span>Total Paid:</span>
+                    <span style={{ color: "#dc2626", fontSize: "1.05rem" }}>
+                      ₹{(activeTracking.totalAmount / 100).toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ border: "1px solid #e2e8f0", borderRadius: 12, padding: 18 }}>
+                  <h5 style={{ fontSize: "0.88rem", fontWeight: 800, color: "#0f172a", marginBottom: 12 }}>
+                    Shipping & Recipient Details
+                  </h5>
+                  <div style={{ fontSize: "0.85rem", color: "#334155", lineHeight: 1.6 }}>
+                    <div><strong>Recipient:</strong> {activeTracking.customerName}</div>
+                    <div><strong>Email:</strong> {activeTracking.customerEmail}</div>
+                    <div><strong>Address:</strong> {activeTracking.customerAddress}</div>
+                    <div style={{ marginTop: 8, fontSize: "0.8rem", color: "#16a34a" }}>
+                      ✓ Order status notifications sent to {activeTracking.customerEmail}
                     </div>
                   </div>
-
-                  {/* Actions Footer */}
-                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 12 }}>
-                    <button
-                      onClick={() => setActiveTracking(null)}
-                      className="btn-white"
-                      style={{ fontSize: "0.85rem" }}
-                    >
-                      Search Another Order
-                    </button>
-                    <button
-                      onClick={() => setIsTrackerOpen(false)}
-                      className="btn-red"
-                      style={{ fontSize: "0.85rem" }}
-                    >
-                      Back to Storefront
-                    </button>
-                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+              </div>
 
-      {/* 🔴 AGENT MCP DRAWER */}
-      {isMcpOpen && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 70,
-            backgroundColor: "rgba(15, 23, 42, 0.6)",
-            backdropFilter: "blur(4px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: "#ffffff",
-              borderRadius: 16,
-              maxWidth: 720,
-              width: "100%",
-              maxHeight: "85vh",
-              overflowY: "auto",
-              padding: 32,
-              boxShadow: "0 20px 40px rgba(0,0,0,0.2)",
-              position: "relative",
-            }}
-          >
-            <button
-              onClick={() => setIsMcpOpen(false)}
-              style={{
-                position: "absolute",
-                top: 20,
-                right: 20,
-                background: "#f1f5f9",
-                border: "none",
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
-                cursor: "pointer",
-              }}
-            >
-              ✕
-            </button>
+              {/* Actions Footer */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button
+                  onClick={() => {
+                    setIsTrackingModalOpen(false);
+                    setActiveView("orders");
+                  }}
+                  className="btn-white"
+                  style={{ fontSize: "0.85rem" }}
+                >
+                  📦 View All My Orders ({orders.length})
+                </button>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: "#16a34a" }}></div>
-              <h3 style={{ fontSize: "1.3rem", fontWeight: 800, color: "#0f172a" }}>
-                🤖 Standalone Agent MCP Server
-              </h3>
-            </div>
-            <p style={{ color: "#64748b", fontSize: "0.9rem", marginBottom: 20 }}>
-              Listening on <code>http://localhost:8787/mcp</code> (POST). AI agents use these 8 standard tools to query this exact store catalog and place orders.
-            </p>
-
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-              {[
-                { name: "search_products", desc: "Search catalog across 99 database products by keywords." },
-                { name: "get_product", desc: "Fetch complete product specs and real-time inventory." },
-                { name: "get_products_by_category", desc: "Filter by Laptops, Accessories, Audio, etc." },
-                { name: "check_inventory", desc: "Real-time stock verification before agent checkout." },
-                { name: "create_order", desc: "Reserve stock and generate Razorpay test order." },
-                { name: "get_order_status", desc: "Query status of an order by ID." },
-                { name: "cancel_order", desc: "Cancel unshipped order and restock inventory." },
-                { name: "get_customer_orders", desc: "List order history for a customer." },
-              ].map((tool) => (
-                <div key={tool.name} style={{ border: "1px solid #e2e8f0", padding: 14, borderRadius: 8, backgroundColor: "#f8fafc" }}>
-                  <div style={{ fontFamily: "monospace", fontWeight: 700, color: "#dc2626", marginBottom: 4 }}>
-                    {tool.name}
-                  </div>
-                  <div style={{ fontSize: "0.8rem", color: "#64748b" }}>{tool.desc}</div>
-                </div>
-              ))}
+                <button
+                  onClick={() => setIsTrackingModalOpen(false)}
+                  className="btn-red"
+                  style={{ fontSize: "0.85rem" }}
+                >
+                  Close Tracker
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1842,11 +2085,10 @@ export default function Storefront() {
 
           <div style={{ display: "flex", gap: 40, fontSize: "0.85rem", color: "#64748b" }}>
             <div>
-              <strong style={{ color: "#0f172a", display: "block", marginBottom: 8 }}>Top Categories</strong>
-              <div>Laptops (20)</div>
-              <div>Accessories (19)</div>
-              <div>Monitors (11)</div>
-              <div>Audio (11)</div>
+              <strong style={{ color: "#0f172a", display: "block", marginBottom: 8 }}>Navigation</strong>
+              <div style={{ cursor: "pointer", marginBottom: 4 }} onClick={() => setActiveView("store")}>Store Catalog (99)</div>
+              <div style={{ cursor: "pointer", marginBottom: 4 }} onClick={() => setActiveView("orders")}>Track Orders ({orders.length})</div>
+              <div style={{ cursor: "pointer" }} onClick={() => setActiveView("mcp")}>Agent MCP Tools (8)</div>
             </div>
             <div>
               <strong style={{ color: "#0f172a", display: "block", marginBottom: 8 }}>Architecture</strong>
