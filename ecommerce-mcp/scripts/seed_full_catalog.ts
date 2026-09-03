@@ -145,7 +145,10 @@ function parseCSVLine(line: string): string[] {
 }
 
 async function main() {
-  const csvPath = path.resolve(__dirname, "../../backend/products.csv");
+  let csvPath = path.resolve(__dirname, "../products.csv");
+  if (!fs.existsSync(csvPath)) {
+    csvPath = path.resolve(__dirname, "../../backend/products.csv");
+  }
   if (!fs.existsSync(csvPath)) {
     console.error("CSV file not found at:", csvPath);
     process.exit(1);
@@ -155,7 +158,13 @@ async function main() {
   const rows = parseCSV(fileContent);
   console.log(`Parsed ${rows.length} products from products.csv.`);
 
-  // Clear existing items to reseed clean catalog
+  const existingCount = await prisma.product.count();
+  if (existingCount >= 90) {
+    console.log(`Database already has ${existingCount} products seeded. Skipping re-seed to preserve live orders.`);
+    return;
+  }
+
+  // Clear existing items to reseed clean catalog if empty
   await prisma.orderItem.deleteMany({});
   await prisma.order.deleteMany({});
   await prisma.inventory.deleteMany({});
