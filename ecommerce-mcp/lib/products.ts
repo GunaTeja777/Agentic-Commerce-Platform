@@ -28,8 +28,8 @@ function toDTO(p: any): ProductDTO {
 
 const includeRelations = { category: true, inventory: true };
 
-/** Full-text-ish search across name & description */
-export async function searchProducts(query: string, limit = 20): Promise<ProductDTO[]> {
+/** Full-text search across name & description */
+export async function searchProducts(query: string, limit = 200): Promise<ProductDTO[]> {
   const products = await prisma.product.findMany({
     where: {
       OR: [
