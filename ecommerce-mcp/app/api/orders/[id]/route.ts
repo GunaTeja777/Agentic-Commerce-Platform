@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOrderStatus, cancelOrder, markOrderPaid, OrderError } from "@/lib/orders";
+import { getOrderStatus, cancelOrder, OrderError } from "@/lib/orders";
+import { prisma } from "@/lib/db";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const order = await getOrderStatus(params.id);
@@ -10,8 +11,14 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const body = await req.json();
-    if (body.razorpayPaymentId && body.razorpayOrderId) {
-      const updated = await markOrderPaid(body.razorpayOrderId, body.razorpayPaymentId);
+    if (body.razorpayPaymentId) {
+      const updated = await prisma.order.update({
+        where: { id: params.id },
+        data: {
+          status: "PAID",
+          razorpayPaymentId: body.razorpayPaymentId,
+        },
+      });
       return NextResponse.json(updated);
     }
     return NextResponse.json({ error: "Missing payment information" }, { status: 400 });
