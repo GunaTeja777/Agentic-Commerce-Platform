@@ -9,9 +9,9 @@ from app.schemas.agent_schemas import GrowthRecommendationResponse
 logger = logging.getLogger("agent.tools.growth")
 
 
-async def execute_growth_recommendation(product_id: int) -> Dict[str, Any]:
+async def execute_growth_recommendation(product_id: Any) -> Dict[str, Any]:
     """
-    Fetch data-driven cross-sell and upsell recommendations for a product via FastAPI backend.
+    Fetch data-driven cross-sell and upsell recommendations for a product.
     """
     try:
         response: GrowthRecommendationResponse = await backend_client.get_growth_recommendations(product_id)
@@ -31,12 +31,12 @@ async def execute_growth_recommendation(product_id: int) -> Dict[str, Any]:
 
 
 @tool
-async def growth_recommendation(product_id: int) -> str:
+async def growth_recommendation(product_id: Any) -> str:
     """
     Find data-backed upsell and cross-sell opportunities for a given base product.
     Do NOT invent recommendations or compatibility reasons.
     Input argument:
-    - product_id: The integer ID of the selected base product (e.g. 1001)
+    - product_id: The ID of the selected base product
     
     Returns structured JSON with base product and data-verified compatible or frequently bought together accessories.
     """

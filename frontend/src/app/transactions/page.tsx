@@ -199,10 +199,18 @@ export default function TransactionsPage() {
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end">
+            <div className="pt-2 flex justify-between items-center">
+              <a
+                href="https://ai-growth-agentic-commerce-production.up.railway.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-xs font-semibold"
+              >
+                ↗ View Live Store (Railway)
+              </a>
               <button
                 onClick={() => setSelectedTx(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-semibold"
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold"
               >
                 Close Details
               </button>

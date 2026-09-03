@@ -91,18 +91,25 @@ def parse_intent_fallback(text: str) -> Dict[str, Any]:
     """
     text_lower = text.lower()
     
-    # Extract numerical budget if specified (e.g., under 70000, 60k, ₹50,000)
+    # Extract numerical budget if specified (e.g., under 70000, 60k, ₹50,000, at 2000)
     budget = None
-    budget_match = re.search(r'(?:under|below|max|budget|within|upto|up\s+to|rs\.?|₹)?\s*([\d,]+(?:\.\d+)?)\s*(k)?\b', text_lower)
+    budget_match = re.search(r'(?:under|below|max|budget|within|upto|up\s*to|at|for|rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)\s*(k)?\b', text_lower)
+    if not budget_match:
+        budget_match = re.search(r'\b([\d,]+(?:\.\d+)?)\s*(?:k|inr|rs|rupees)\b', text_lower)
+    if not budget_match:
+        matches = list(re.finditer(r'\b([\d,]{3,}(?:\.\d+)?)\b', text_lower))
+        if matches:
+            budget_match = matches[-1]
+
     if budget_match:
         raw_val = budget_match.group(1).replace(',', '')
         try:
             val = float(raw_val)
-            if budget_match.group(2) == 'k':
+            if budget_match.lastindex and budget_match.lastindex >= 2 and budget_match.group(2) == 'k':
                 val *= 1000
             if val > 0:
                 budget = val
-        except ValueError:
+        except (ValueError, IndexError):
             pass
 
     # Dynamically extract search term by filtering common grammatical filler words
@@ -312,16 +319,16 @@ async def select_product_node(state: AgentState) -> Dict[str, Any]:
                 f"Select the single best product matching the buyer's request.\n"
                 f"Buyer Request: '{buyer_request}'\n\n"
                 f"Available Products:\n" + "\n".join(summary_list) + "\n\n"
-                f"Return ONLY a JSON object: {{\"selected_product_id\": <number>}}"
+                f"Return ONLY a JSON object: {{\"selected_product_id\": \"<product_id>\"}}"
             )
             resp = await llm.ainvoke([
                 SystemMessage(content="You are a commerce product matching expert. Return only JSON with selected_product_id."),
                 HumanMessage(content=prompt)
             ])
-            match = re.search(r'\{\s*"selected_product_id"\s*:\s*(\d+)\s*\}', str(resp.content))
+            match = re.search(r'\{\s*"selected_product_id"\s*:\s*["\']?([^"\'}]+)["\']?\s*\}', str(resp.content))
             if match:
-                chosen_id = int(match.group(1))
-                found = next((c for c in sorted_candidates if c.get("product_id") == chosen_id), None)
+                chosen_id = match.group(1).strip()
+                found = next((c for c in sorted_candidates if str(c.get("product_id")) == chosen_id), None)
                 if found:
                     selected = found
         except Exception as e:
@@ -369,12 +376,36 @@ async def growth_recommendation_node(state: AgentState) -> Dict[str, Any]:
         top_rec = ranked_recs[0]
         rec_name = top_rec.get("name") or top_rec.get("product_name")
         rec_price = top_rec.get("price_inr", 0.0)
-        rec_reason = top_rec.get("reason", "Frequently bought together")
+        rec_reason = top_rec.get("reason", "Compatible accessory for your purchase")
+
+        # Gemini LLM as MCP Client: Decides optimal growth pitch based on product & use case
+        llm = get_llm_instance()
+        if llm:
+            try:
+                from langchain_core.messages import SystemMessage, HumanMessage
+                growth_prompt = (
+                    f"You are the Merchant AI Agent deciding a growth recommendation.\n"
+                    f"Selected Base Product: {prod_name} (₹{prod_price:,.0f})\n"
+                    f"Buyer Intent / Use Case: {state.get('use_case', 'work')}\n"
+                    f"Candidate Accessory: {rec_name} (₹{rec_price:,.0f})\n\n"
+                    f"Provide a concise, 1-sentence reason explaining why {rec_name} is the ideal add-on for {prod_name}.\n"
+                    f"Keep it under 20 words."
+                )
+                res = await llm.ainvoke([
+                    SystemMessage(content="You are an autonomous merchant growth AI."),
+                    HumanMessage(content=growth_prompt)
+                ])
+                custom_reason = str(res.content).strip().strip('"')
+                if custom_reason and len(custom_reason) > 5:
+                    rec_reason = custom_reason
+                    top_rec["reason"] = rec_reason
+            except Exception as e:
+                logger.warning(f"Gemini growth pitch fallback: {e}")
 
         if "Since you're buying" in rec_reason:
             rec_text = f"{rec_reason} (₹{rec_price:,.2f})"
         else:
-            rec_text = f"Since you're buying {prod_name}, {rec_name} would be a useful addition for ₹{rec_price:,.2f}."
+            rec_text = f"{rec_reason} — {rec_name} for ₹{rec_price:,.2f}."
 
         message = (
             f"I found the **{prod_name}** for ₹{prod_price:,.2f}.\n\n"
@@ -526,7 +557,7 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
     request_id = state.get("request_id")
 
     try:
-        # 1. Create Order in PostgreSQL
+        # 1. Create Order in Store / Backend
         order_res = await backend_client.create_order(
             merchant_id=merchant_id,
             buyer_id=buyer_id,
@@ -534,15 +565,29 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
             request_id=request_id
         )
         order_id = order_res.get("order_id")
-        logger.info(f"[Node: PaymentInitiation] DB Order #{order_id} created successfully")
+        logger.info(f"[Node: PaymentInitiation] Order #{order_id} created successfully")
 
-        # 2. Call Payment Tool to generate Razorpay Test Order
-        payment_data = await execute_payment_initiation(
-            merchant_id=merchant_id,
-            order_id=order_id,
-            policy_allowed=True,
-            request_id=request_id
-        )
+        # 2. Extract Razorpay Test Order from store response or call Payment Tool
+        if order_res.get("payment") and order_res["payment"].get("razorpay_order_id"):
+            p_info = order_res["payment"]
+            payment_data = {
+                "status": "ready_for_checkout",
+                "payment_attempted": True,
+                "order_id": order_id,
+                "razorpay_order_id": p_info.get("razorpay_order_id"),
+                "amount": p_info.get("amount"),
+                "amount_inr": total,
+                "currency": p_info.get("currency", "INR"),
+                "key_id": p_info.get("razorpay_key_id") or getattr(settings, "RAZORPAY_KEY_ID", "rzp_test_TWfbZX7sZugjLd"),
+                "request_id": request_id
+            }
+        else:
+            payment_data = await execute_payment_initiation(
+                merchant_id=merchant_id,
+                order_id=order_id,
+                policy_allowed=True,
+                request_id=request_id
+            )
 
         razorpay_order_id = payment_data.get("razorpay_order_id")
         cart_desc = ", ".join([f"{item['product_name']} (₹{item['price_inr']:,.2f})" for item in cart_items])

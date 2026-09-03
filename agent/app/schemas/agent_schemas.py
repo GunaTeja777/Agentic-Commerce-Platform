@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Union
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 
@@ -16,7 +16,7 @@ class AgentStatus(str, Enum):
 
 class ProductResult(BaseModel):
     """Product model returned by catalog search."""
-    product_id: int
+    product_id: Union[int, str]
     product_name: str
     category: str
     price_inr: float
@@ -46,7 +46,7 @@ class ProductCatalogResponse(BaseModel):
 
 class GrowthRecommendationItem(BaseModel):
     """Individual upsell / cross-sell item."""
-    id: int
+    id: Union[int, str]
     name: str
     price_inr: float
     stock: int
@@ -58,7 +58,7 @@ class GrowthRecommendationItem(BaseModel):
 
 class GrowthBaseProduct(BaseModel):
     """Base product for growth recommendations."""
-    id: int
+    id: Union[int, str]
     name: str
     price_inr: float
 
@@ -85,7 +85,7 @@ class PolicyResult(BaseModel):
 
 class CartItem(BaseModel):
     """Item in the proposed or finalized cart."""
-    product_id: int
+    product_id: Union[int, str]
     product_name: str
     price_inr: float
     quantity: int = 1

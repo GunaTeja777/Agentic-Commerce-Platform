@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import { Product } from '@/lib/types';
 import { formatINR } from '@/lib/format';
@@ -14,11 +14,17 @@ import {
 } from 'lucide-react';
 
 export default function CatalogPage() {
-  const { products, addProduct } = useCommerce();
+  const { products, addProduct, refreshCommerceData } = useCommerce();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+
+  useEffect(() => {
+    refreshCommerceData();
+  }, [refreshCommerceData]);
+
+  const categories = ['All', ...Array.from(new Set(products.map((p) => p.category))).filter(Boolean)];
 
   // New product form state
   const [newProdName, setNewProdName] = useState('');
@@ -102,11 +108,13 @@ export default function CatalogPage() {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none"
+            className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none font-medium"
           >
-            <option value="All">All Categories</option>
-            <option value="Electronics">Electronics</option>
-            <option value="Accessories">Accessories</option>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat === 'All' ? 'All Categories' : cat}
+              </option>
+            ))}
           </select>
         </div>
       </div>

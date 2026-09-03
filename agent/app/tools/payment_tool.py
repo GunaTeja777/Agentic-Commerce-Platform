@@ -10,7 +10,7 @@ logger = logging.getLogger("agent.tools.payment")
 
 async def execute_payment_initiation(
     merchant_id: int,
-    order_id: int,
+    order_id: Any,
     policy_allowed: bool = False,
     request_id: Optional[str] = None
 ) -> Dict[str, Any]:

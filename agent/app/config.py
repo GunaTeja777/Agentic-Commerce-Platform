@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AgentSettings(BaseSettings):
     """Configuration settings for the Agent service."""
     BACKEND_URL: str = "http://localhost:8000"
+    STORE_API_URL: str = "https://ai-growth-agentic-commerce-production.up.railway.app"
     API_V1_PREFIX: str = "/api"
     
     # LLM Settings (Orchestration with Gemini)

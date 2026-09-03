@@ -4,7 +4,8 @@ import { DEFAULT_POLICY } from '@/lib/mock-data/policies';
 import { INITIAL_AUDIT_EVENTS } from '@/lib/mock-data/audit';
 import { INITIAL_TRANSACTIONS } from '@/lib/mock-data/transactions';
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+export const STORE_BASE = process.env.NEXT_PUBLIC_STORE_URL || 'https://ai-growth-agentic-commerce-production.up.railway.app';
 
 interface BackendProductItem {
   product_id?: number;
@@ -80,7 +81,20 @@ export interface PaymentVerifyResponse {
   order_id: number;
   amount_inr: number;
   razorpay_payment_id: string;
+  razorpay_order_id?: string;
+  signature_valid?: boolean;
   message: string;
+}
+
+export interface RailwayOrderResponse {
+  orderId?: string;
+  id?: string;
+  status?: string;
+  totalAmount?: number;
+  currency?: string;
+  razorpayOrderId?: string;
+  razorpayKeyId?: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -102,7 +116,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export const AGENT_BASE = process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8001';
+export const AGENT_BASE = process.env.NEXT_PUBLIC_AGENT_URL || '/api';
 
 export interface AgentChatResponse {
   status: string;
@@ -199,20 +213,58 @@ export const apiService = {
 
   async getProducts(): Promise<Product[]> {
     try {
-      const data = await fetchJson<{ items: BackendProductItem[] }>(`${API_BASE}/products?limit=50`);
+      // 1. Try fetching from live Railway E-Commerce Store
+      try {
+        const storeRes = await fetch(`${STORE_BASE}/api/products`);
+        if (storeRes.ok) {
+          const storeData = await storeRes.json();
+          const items = Array.isArray(storeData) ? storeData : storeData.products || [];
+          if (items.length > 0) {
+            return items.map((item: BackendProductItem & { imageUrl?: string; inStock?: boolean; quantityAvailable?: number }) => {
+              const rawPrice = Number(item.price || item.price_inr || 0);
+              const priceInr = item.price !== undefined ? rawPrice / 100 : rawPrice;
+              const stock = Number(item.quantityAvailable ?? item.stock_quantity ?? item.stock ?? 10);
+              return {
+                id: String(item.id || item.product_id),
+                name: String(item.name || item.product_name || 'Product'),
+                category: String(item.category || 'Electronics'),
+                price: priceInr,
+                stock: stock,
+                compatibleProducts: [item.category || 'Accessories'],
+                frequentlyBoughtWith: [],
+                agentReadableStatus: stock > 10 ? 'Available' : stock > 0 ? 'Low Stock' : 'Out of Stock',
+                description: item.description || '',
+                specifications: { image: item.imageUrl || '' }
+              };
+            });
+          }
+        }
+      } catch (storeErr) {
+        console.warn('Live store query failed, falling back to local backend:', storeErr);
+      }
+
+      // 2. Fallback to local FastAPI backend
+      const data = await fetchJson<{ items: BackendProductItem[] }>(`${API_BASE}/products?limit=100`);
       if (data && data.items && data.items.length > 0) {
-        return data.items.map((item) => ({
-          id: String(item.product_id || item.id),
-          name: item.product_name || item.name || 'Product',
-          category: item.category || 'Electronics',
-          price: Number(item.price_inr || item.price || 0),
-          stock: Number(item.stock_quantity || item.stock || 0),
-          compatibleProducts: Array.isArray(item.tags) ? item.tags : [],
-          frequentlyBoughtWith: [],
-          agentReadableStatus: ((item.stock_quantity || item.stock || 0) > 10) ? 'Available' : ((item.stock_quantity || item.stock || 0) > 0) ? 'Low Stock' : 'Out of Stock',
-          description: item.description || '',
-          specifications: {}
-        }));
+        return data.items.map((item) => {
+          const rawTags = typeof item.tags === 'string'
+            ? (item.tags as string).split(',').map((t: string) => t.trim()).filter(Boolean)
+            : Array.isArray(item.tags)
+            ? item.tags
+            : [];
+          return {
+            id: String(item.product_id || item.id),
+            name: item.product_name || item.name || 'Product',
+            category: item.category || 'Electronics',
+            price: Number(item.price_inr || item.price || 0),
+            stock: Number(item.stock_quantity || item.stock || 0),
+            compatibleProducts: rawTags,
+            frequentlyBoughtWith: [],
+            agentReadableStatus: ((item.stock_quantity || item.stock || 0) > 10) ? 'Available' : ((item.stock_quantity || item.stock || 0) > 0) ? 'Low Stock' : 'Out of Stock',
+            description: item.description || '',
+            specifications: {}
+          };
+        });
       }
     } catch (e) {
       console.warn('Could not fetch products from backend, using default initial catalog:', e);
@@ -260,11 +312,46 @@ export const apiService = {
     }
   },
 
-  async createOrder(merchantId: number, buyerId: string, items: Array<{ product_id: number; quantity: number }>): Promise<BackendOrderResponse> {
+  async createOrder(merchantId: number, buyerId: string, items: Array<{ product_id: number | string; quantity: number }>): Promise<BackendOrderResponse> {
     return fetchJson<BackendOrderResponse>(`${API_BASE}/orders`, {
       method: 'POST',
       body: JSON.stringify({ merchant_id: merchantId, buyer_id: buyerId, items })
     });
+  },
+
+  async createRailwayOrder(customerEmail: string, customerName: string, items: Array<{ productId: string; quantity: number; name?: string }>): Promise<RailwayOrderResponse | null> {
+    try {
+      const res = await fetch('/api/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerEmail, customerName, items })
+      });
+      if (res.ok) {
+        return (await res.json()) as RailwayOrderResponse;
+      } else {
+        const errText = await res.text();
+        console.error('createRailwayOrder proxy error response:', res.status, errText);
+      }
+    } catch (err) {
+      console.warn('createRailwayOrder proxy error:', err);
+    }
+    return null;
+  },
+
+  async updateRailwayOrderPaid(orderId: string, razorpayPaymentId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch('/api/orders/settle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, paymentId: razorpayPaymentId })
+      });
+      if (res.ok) {
+        return (await res.json()) as Record<string, unknown>;
+      }
+    } catch (err) {
+      console.warn('updateRailwayOrderPaid proxy error:', err);
+    }
+    return null;
   },
 
   async createPaymentOrder(orderId: number): Promise<PaymentOrderResponse> {
