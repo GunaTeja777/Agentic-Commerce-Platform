@@ -29,7 +29,8 @@ import {
   ExternalLink,
   ChevronRight,
   ShieldAlert,
-  Smartphone
+  Smartphone,
+  Wallet
 } from 'lucide-react';
 
 export default function ArchitecturePage() {
@@ -438,18 +439,106 @@ export default function ArchitecturePage() {
 
           </div>
 
+          {/* Transition: Policy Gate -> Payment Authorization */}
+          <div className="flex flex-col items-center my-3 text-slate-400">
+            <ArrowDown className="w-5 h-5 text-indigo-600 animate-pulse" />
+            <div className="flex items-center gap-2 text-xs bg-indigo-50 px-4 py-1.5 rounded-lg border border-indigo-200 text-indigo-900 font-sans shadow-2xs font-semibold">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Policy Clearance Granted &bull; Pre-Delegated Spend Mandate Emitted &bull; Handshake with Payment Rail</span>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* 5. EXPLICIT PAYMENT LAYER: AGENTIC PAYMENT AUTHORIZATION & PAYMENT RAIL */}
+          {/* ========================================================================= */}
+          <div className="flex flex-col items-center">
+            <div className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 text-white border-2 border-blue-400 rounded-xl px-6 py-4 shadow-lg text-center max-w-2xl w-full relative">
+              <div className="absolute -top-3 right-4 bg-emerald-400 text-slate-950 font-sans font-extrabold text-[10px] px-2.5 py-0.5 rounded shadow-xs uppercase tracking-wider">
+                Razorpay &bull; UPI &bull; AP2 Protocol Ready
+              </div>
+              <div className="flex items-center justify-center gap-2 font-bold text-sm">
+                <CreditCard className="w-5 h-5 text-blue-300" />
+                <span>5. AGENTIC PAYMENT AUTHORIZATION &amp; PAYMENT RAIL LAYER</span>
+              </div>
+              <p className="text-xs text-blue-200 mt-1.5 font-sans leading-relaxed">
+                Bridges AI intent governance to real-world monetary settlement rails. Converts autonomous policy clearance into tokenized mandates, binds Razorpay Orders API, and verifies cryptographic settlement proofs.
+              </p>
+            </div>
+
+            {/* 3 Columns under Payment Layer: Authorization, Rail Execution, Cryptographic Settlement */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 max-w-4xl w-full mt-3 font-sans">
+              {/* 1. Payment Authorization Sub-Node */}
+              <div className="bg-white border-2 border-indigo-300 rounded-xl p-3.5 shadow-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-indigo-950 pb-1.5 border-b border-indigo-100">
+                  <Lock className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <span>A. Agent Authorization</span>
+                </div>
+                <div className="space-y-1.5 text-[11px] text-slate-600">
+                  <div className="bg-indigo-50/60 p-2 rounded border border-indigo-100">
+                    <strong className="text-indigo-900 block font-mono text-[10.5px]">Pre-delegated Mandate</strong>
+                    Scoped buyer agent spending key with bounded velocity &amp; expiry.
+                  </div>
+                  <div className="bg-indigo-50/60 p-2 rounded border border-indigo-100">
+                    <strong className="text-indigo-900 block font-mono text-[10.5px]">Idempotency Guard</strong>
+                    Generates unique <code className="text-slate-800 text-[10px]">nonce_idemp_...</code> preventing duplicate charges.
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Payment Rail Sub-Node */}
+              <div className="bg-white border-2 border-blue-300 rounded-xl p-3.5 shadow-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-blue-950 pb-1.5 border-b border-blue-100">
+                  <Wallet className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>B. Payment Rails</span>
+                </div>
+                <div className="space-y-1.5 text-[11px] text-slate-600">
+                  <div className="bg-blue-50/60 p-2 rounded border border-blue-100">
+                    <strong className="text-blue-900 block font-mono text-[10.5px]">Razorpay Orders API</strong>
+                    Live server-to-server <code className="text-slate-800 text-[10px]">order_...</code> creation with currency INR.
+                  </div>
+                  <div className="bg-blue-50/60 p-2 rounded border border-blue-100">
+                    <strong className="text-blue-900 block font-mono text-[10.5px]">UPI AutoPay / e-Mandate</strong>
+                    Recurring sub-threshold autonomous debit &amp; instant human auth links.
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Settlement & Cryptographic Proof */}
+              <div className="bg-white border-2 border-emerald-300 rounded-xl p-3.5 shadow-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-xs text-emerald-950 pb-1.5 border-b border-emerald-100">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>C. Settlement &amp; Clearing</span>
+                </div>
+                <div className="space-y-1.5 text-[11px] text-slate-600">
+                  <div className="bg-emerald-50/60 p-2 rounded border border-emerald-100">
+                    <strong className="text-emerald-900 block font-mono text-[10.5px]">HMAC-SHA256 Signatures</strong>
+                    Cryptographic webhook &amp; signature validation verifying funds capture.
+                  </div>
+                  <div className="bg-emerald-50/60 p-2 rounded border border-emerald-100">
+                    <strong className="text-emerald-900 block font-mono text-[10.5px]">Proof Stamping</strong>
+                    Emits immutable <code className="text-slate-800 text-[10px]">pay_agent_mcp_...</code> token to DB ledger.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* ========================================================================= */}
           {/* 6. BOTTOM NODE: UAP-STYLE SETTLEMENT RECEIPT TO BUYER */}
           {/* ========================================================================= */}
           <div className="flex flex-col items-center pt-2">
             <div className="my-2 text-slate-400">
-              <ArrowDown className="w-5 h-5 text-slate-600" />
+              <ArrowDown className="w-5 h-5 text-emerald-600" />
+              <div className="flex items-center gap-2 text-xs bg-emerald-50 px-4 py-1.5 rounded-lg border border-emerald-200 text-emerald-900 font-sans shadow-2xs font-semibold my-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Settlement Cleared &bull; Order Manifest Sealed &bull; Emitting Verified Proof</span>
+              </div>
             </div>
 
             <div className="bg-slate-950 text-white border-2 border-emerald-500/60 rounded-xl px-8 py-4 shadow-md text-center max-w-xl w-full">
               <div className="font-bold text-xs text-emerald-400 flex items-center justify-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span>5. UAP-STYLE VERIFIED SETTLEMENT RECEIPT (BACK TO AI BUYER)</span>
+                <span>6. UAP-STYLE VERIFIED SETTLEMENT RECEIPT (BACK TO AI BUYER)</span>
               </div>
               <p className="text-xs text-slate-300 font-sans mt-1 leading-relaxed">
                 Structured agent-to-agent receipt returning Store Booking ID (<code className="text-indigo-300 text-[11px]">cmtm...</code>), 
@@ -492,6 +581,34 @@ export default function ArchitecturePage() {
     "growth_recommendations_allowed": true
   },
   "timestamp": "2026-09-04T21:40:23Z"
+}`}
+            </pre>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-blue-600" />
+              <span>Agentic Payment Authorization &amp; Rail Spec (Razorpay &amp; UPI)</span>
+            </h2>
+            <p className="text-xs text-slate-600">
+              The cryptographic mandate payload exchanged with Razorpay &amp; UPI rails upon policy approval:
+            </p>
+            <pre className="bg-slate-950 text-blue-300 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800 leading-relaxed">
+{`{
+  "mandate_id": "mandate_agent_buyer_92a81",
+  "delegated_buyer_id": "demo-ai-buyer",
+  "payment_rail": "RAZORPAY_GATEWAY",
+  "sub_rail": "UPI_AUTOPAY_PREDELEGATED",
+  "razorpay_order_id": "order_TXw6PIVNUZYcfo",
+  "authorized_amount_inr": 500,
+  "currency": "INR",
+  "idempotency_key": "idemp_order_4_session_a8f9c1d2e3",
+  "signature_verification": {
+    "algorithm": "HMAC-SHA256",
+    "verified": true,
+    "razorpay_signature": "e5b83901b0f1a91d847c5d9e18b1cf..."
+  },
+  "settlement_status": "CAPTURED & SETTLED"
 }`}
             </pre>
           </div>

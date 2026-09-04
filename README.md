@@ -114,14 +114,26 @@ As autonomous AI agents evolve from conversational assistants into economic acto
 Total <= Approval Threshold    Total > Threshold & <= Limit     Total > Maximum Limit
 (e.g. ₹800 <= ₹5,000)          (e.g. ₹65,000 > ₹5,000)          (e.g. ₹77,000 > ₹70,000)
        ▼                               ▼                               ▼
- ⚡ ZERO-TOUCH ORDER           🔒 PAUSE AT GATE                🛑 POLICY VIOLATION
-• create_order on Live Store  • Renders Approve/Reject buttons • 0 Razorpay API calls
-• settle_order (Status: PAID) • Accepts "approve" in chat      • 0 MCP payment calls
-• NO PERMISSION PROMPT        • Waits for user confirmation   • Block logged in audit
+ ⚡ ZERO-TOUCH CLEARANCE       🔒 HITL CLEARANCE               🛑 POLICY VIOLATION
+• Sub-threshold clearance    • User click / "approve" in chat • 0 Razorpay API calls
+• Emits spend mandate token  • Unlocks payment rail           • 0 MCP payment calls
        │                               │                               │
-       ▼                               ▼                               │
- Dark Green Receipt Displayed   User Confirms -> Settles Order         ▼
- Booking ID & Settlement Ref    Receipt Displayed with Details  Blocked Alert Box
+       └───────────────────────┬───────┘                               ▼
+                               │                                Blocked Alert Box
+                               ▼
+        ┌────────────────────────────────────────────────────────┐
+        │   5. AGENTIC PAYMENT AUTHORIZATION & PAYMENT RAILS     │
+        │   • Razorpay Orders API: order_TXw6PIVNUZYcfo (INR)    │
+        │   • Payment Rails: UPI AutoPay / e-Mandate / Tokenized │
+        │   • Idempotency Nonce: idemp_order_4_session_...       │
+        │   • HMAC-SHA256 Cryptographic Settlement Signature    │
+        └──────────────────────────┬─────────────────────────────┘
+                                   │
+                                   ▼
+        ┌────────────────────────────────────────────────────────┐
+        │   6. UAP-STYLE SETTLEMENT RECEIPT (BACK TO AI BUYER)   │
+        │   Store Booking ID + Razorpay ID + Settlement Proof    │
+        └────────────────────────────────────────────────────────┘
 ```
 
 ---
