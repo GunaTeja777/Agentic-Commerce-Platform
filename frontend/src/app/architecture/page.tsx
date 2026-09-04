@@ -42,7 +42,7 @@ export default function ArchitecturePage() {
         <div>
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold mb-2">
             <Layers className="w-3.5 h-3.5" />
-            <span>Dual-Agent A2A &bull; Unified Agent Protocol (UAP) &bull; Model Context Protocol (MCP)</span>
+            <span>Dual-Agent A2A &bull; UAP-Style Commerce &bull; Model Context Protocol (MCP)</span>
           </div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
             Agentic Commerce Architecture
@@ -93,7 +93,7 @@ export default function ArchitecturePage() {
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
-          UAP &amp; MCP Schema Spec
+          UAP-Style &amp; MCP Spec
         </button>
         <button
           onClick={() => setActiveTab('matrix')}
@@ -135,16 +135,16 @@ export default function ArchitecturePage() {
               </div>
             </div>
 
-            {/* A2A Handshake Connector: UNIFIED AGENT PROTOCOL (UAP) */}
+            {/* A2A Handshake Connector: UAP-STYLE AGENT INTENT CONTRACT */}
             <div className="flex flex-col items-center my-3 text-slate-400">
               <ArrowDown className="w-5 h-5 text-purple-600 animate-bounce" />
               <div className="flex items-center gap-2 text-xs bg-white px-4 py-2 rounded-xl border-2 border-purple-300 text-purple-950 font-sans shadow-xs font-semibold mt-1">
                 <FileJson className="w-4 h-4 text-purple-600 shrink-0" />
                 <span>
-                  <strong>Unified Agent Protocol (UAP) Payload:</strong> <code className="text-purple-700 font-mono text-[11px]">{'{ buyer_id, intent, category, budget_inr, preferences }'}</code>
+                  <strong>UAP-Style Agent Intent Contract:</strong> <code className="text-purple-700 font-mono text-[11px]">{'{ buyer_id, intent, category, budget_inr, preferences }'}</code>
                 </span>
               </div>
-              <span className="text-[10px] text-slate-500 font-sans mt-1">Machine-readable contract &bull; Zero browser scraping &bull; Standardized A2A session</span>
+              <span className="text-[10px] text-slate-500 font-sans mt-1">Buyer–Merchant A2A intent contract &bull; Machine-readable JSON &bull; Zero browser scraping</span>
             </div>
           </div>
 
@@ -161,7 +161,7 @@ export default function ArchitecturePage() {
                 <span>2. MERCHANT AI AGENT (Store Brain &amp; Orchestrator)</span>
               </div>
               <p className="text-xs text-indigo-200 mt-1.5 font-sans leading-relaxed">
-                Ingests UAP commerce contract &bull; Evaluates catalog availability &bull; Generates context-aware growth recommendations 
+                Ingests UAP-style agent intent contract &bull; Evaluates catalog availability &bull; Generates context-aware growth recommendations 
                 &bull; Computes itemized totals with taxes and shipping &bull; Prepares deterministic order manifest.
               </p>
             </div>
@@ -439,7 +439,7 @@ export default function ArchitecturePage() {
           </div>
 
           {/* ========================================================================= */}
-          {/* 6. BOTTOM NODE: UAP SETTLEMENT RECEIPT TO BUYER */}
+          {/* 6. BOTTOM NODE: UAP-STYLE SETTLEMENT RECEIPT TO BUYER */}
           {/* ========================================================================= */}
           <div className="flex flex-col items-center pt-2">
             <div className="my-2 text-slate-400">
@@ -449,7 +449,7 @@ export default function ArchitecturePage() {
             <div className="bg-slate-950 text-white border-2 border-emerald-500/60 rounded-xl px-8 py-4 shadow-md text-center max-w-xl w-full">
               <div className="font-bold text-xs text-emerald-400 flex items-center justify-center gap-2">
                 <Sparkles className="w-4 h-4 text-emerald-400" />
-                <span>5. UAP VERIFIED SETTLEMENT RECEIPT (BACK TO AI BUYER)</span>
+                <span>5. UAP-STYLE VERIFIED SETTLEMENT RECEIPT (BACK TO AI BUYER)</span>
               </div>
               <p className="text-xs text-slate-300 font-sans mt-1 leading-relaxed">
                 Structured agent-to-agent receipt returning Store Booking ID (<code className="text-indigo-300 text-[11px]">cmtm...</code>), 
@@ -469,14 +469,14 @@ export default function ArchitecturePage() {
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <FileJson className="w-5 h-5 text-purple-600" />
-              <span>Unified Agent Protocol (UAP) Payload Schema</span>
+              <span>UAP-Style Agent Intent Contract Schema</span>
             </h2>
             <p className="text-xs text-slate-600">
-              The standardized JSON schema exchanged between the Buyer-side Agent and Merchant-side Agent during A2A negotiation:
+              The structured JSON contract exchanged between the Buyer-side Agent and Merchant-side Agent during A2A negotiation:
             </p>
             <pre className="bg-slate-950 text-emerald-300 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800 leading-relaxed">
 {`{
-  "protocol": "UAP/1.0",
+  "protocol": "UAP-Style/1.0",
   "buyer_session_id": "session_a8f9c1d2e3",
   "buyer_id": "demo-ai-buyer",
   "intent": "ORDER",                      // "ORDER" | "CATALOG_SEARCH" | "CANCEL_ORDER" | "LIST_ORDERS"
@@ -511,7 +511,7 @@ export default function ArchitecturePage() {
   "store_booking_id": "cmtmuhbor0005wgj4mhpzewv3",
   "razorpay_order_id": "order_TXw6PIVNUZYcfo",
   "agent_settlement_id": "pay_agent_mcp_aojklcam",
-  "checkout_mode": "Autonomous Zero-Touch MCP Booking (UAP Flow)",
+  "checkout_mode": "Autonomous Zero-Touch MCP Booking (UAP-Style Flow)",
   "basket_total_inr": 500,
   "currency": "INR",
   "policy_evaluation": {
@@ -633,7 +633,7 @@ export default function ArchitecturePage() {
               <Server className="w-3.5 h-3.5 text-emerald-600" />
               <span>Protocol Standards</span>
             </div>
-            <div className="text-slate-700 font-semibold text-[11px]">UAP + Anthropic MCP</div>
+            <div className="text-slate-700 font-semibold text-[11px]">UAP-Style A2A + Anthropic MCP</div>
             <div className="text-[10px] text-slate-500 font-mono">8 Live Production Tools</div>
           </div>
 

@@ -2161,10 +2161,10 @@ export default function LiveDemoPage() {
                 <div className="flex items-center gap-1.5">
                   <h2 className="text-sm font-bold text-slate-900 leading-tight">Transaction</h2>
                   <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide">
-                    UAP
+                    UAP-Style
                   </span>
                 </div>
-                <p className="text-[10.5px] text-emerald-700 font-medium">By following Unified Agent Protocol (UAP) • Policy Gate</p>
+                <p className="text-[10.5px] text-emerald-700 font-medium">UAP-Style Agent Intent Contract • Policy Gate</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 font-mono text-[10px]">
@@ -2438,12 +2438,12 @@ export default function LiveDemoPage() {
                   </div>
                   <div className="flex justify-between text-slate-300">
                     <span className="text-slate-400">Protocol Standard:</span>
-                    <span className="text-purple-300 font-semibold text-[11px]">Unified Agent Protocol (UAP) + MCP</span>
+                    <span className="text-purple-300 font-semibold text-[11px]">UAP-Style Intent Contract + MCP</span>
                   </div>
                   <div className="flex justify-between text-slate-300">
                     <span className="text-slate-400">Checkout Mode:</span>
                     <span className="text-indigo-300 font-semibold">
-                      {policyDecision?.isAutonomous ? 'Autonomous Zero-Touch MCP Booking (UAP Flow)' : 'Human-Authorized Agent MCP Booking (UAP Flow)'}
+                      {policyDecision?.isAutonomous ? 'Autonomous Zero-Touch MCP Booking (UAP-Style Flow)' : 'Human-Authorized Agent MCP Booking (UAP-Style Flow)'}
                     </span>
                   </div>
                 </div>
