@@ -2030,8 +2030,13 @@ export default function LiveDemoPage() {
                 <CreditCard className="w-4 h-4" />
               </div>
               <div>
-                <h2 className="text-sm font-bold text-slate-900 leading-tight">Transaction</h2>
-                <p className="text-[11px] text-emerald-700 font-medium">Policy Gate &amp; Payment Service</p>
+                <div className="flex items-center gap-1.5">
+                  <h2 className="text-sm font-bold text-slate-900 leading-tight">Transaction</h2>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 tracking-wide">
+                    UAP
+                  </span>
+                </div>
+                <p className="text-[10.5px] text-emerald-700 font-medium">By following Unified Agent Protocol (UAP) • Policy Gate</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 font-mono text-[10px]">
@@ -2217,9 +2222,13 @@ export default function LiveDemoPage() {
                     <span className="text-emerald-400 font-bold">CONFIRMED &amp; PAID (Live DB)</span>
                   </div>
                   <div className="flex justify-between text-slate-300">
+                    <span className="text-slate-400">Protocol Standard:</span>
+                    <span className="text-purple-300 font-semibold text-[11px]">Unified Agent Protocol (UAP) + MCP</span>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
                     <span className="text-slate-400">Checkout Mode:</span>
                     <span className="text-indigo-300 font-semibold">
-                      {policyDecision?.isAutonomous ? 'Autonomous Zero-Touch MCP Booking' : 'Human-Authorized Agent MCP Booking'}
+                      {policyDecision?.isAutonomous ? 'Autonomous Zero-Touch MCP Booking (UAP Flow)' : 'Human-Authorized Agent MCP Booking (UAP Flow)'}
                     </span>
                   </div>
                 </div>
