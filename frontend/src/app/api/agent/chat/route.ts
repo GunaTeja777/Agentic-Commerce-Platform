@@ -16,6 +16,25 @@ interface RailwayProduct {
   imageUrl?: string;
 }
 
+interface RailwayOrder {
+  orderId: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
+  customerEmail: string;
+  customerName: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  createdAt: string;
+  items: Array<{
+    productId: string;
+    name: string;
+    quantity: number;
+    unitPrice: number;
+    imageUrl?: string;
+  }>;
+}
+
 /**
  * Call High-Speed LLM (Groq first, Hugging Face fallback)
  */
@@ -91,6 +110,176 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const message: string = body.message || 'I need a product';
     const structuredReq = body.structured_request || {};
+    const actionType = structuredReq.action_type || 'ORDER';
+
+    // =========================================================================
+    // ACTION 1: LIST MY ORDERS (MCP get_customer_orders)
+    // =========================================================================
+    if (actionType === 'LIST_ORDERS') {
+      try {
+        const ordersRes = await fetch(`${STORE_API_URL}/api/orders`, { cache: 'no-store' });
+        let orders: RailwayOrder[] = [];
+        if (ordersRes.ok) {
+          orders = await ordersRes.json();
+        }
+
+        if (!orders || orders.length === 0) {
+          return NextResponse.json({
+            status: 'orders_listed',
+            action_type: 'LIST_ORDERS',
+            message: '📦 You have no orders placed on the live store platform yet.',
+            orders: []
+          });
+        }
+
+        const topOrders = orders.slice(0, 5);
+        const orderSummaryLines = topOrders.map(o => {
+          const itemNames = (o.items || []).map(i => i.name).join(', ') || 'Item';
+          const priceStr = `₹${(o.totalAmount / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+          const statusIcon = o.status === 'PAID' ? '✅ PAID' : o.status === 'CANCELLED' ? '❌ CANCELLED' : '⏳ PENDING';
+          const dateStr = new Date(o.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+          return `• **Order \`${o.orderId.slice(-8)}\`**: ${itemNames} — ${priceStr} (${statusIcon} at ${dateStr})`;
+        }).join('\n');
+
+        const replyMessage = `📦 **Here are your recent orders from the live store (via MCP):**\n\n${orderSummaryLines}\n\n💡 *Tip: You can say "cancel this order" or "track order" at any time.*`;
+
+        return NextResponse.json({
+          status: 'orders_listed',
+          action_type: 'LIST_ORDERS',
+          message: replyMessage,
+          orders: topOrders
+        });
+      } catch (err) {
+        return NextResponse.json({
+          status: 'error',
+          action_type: 'LIST_ORDERS',
+          message: 'Failed to retrieve orders from the live MCP server.'
+        });
+      }
+    }
+
+    // =========================================================================
+    // ACTION 2: CANCEL ORDER (MCP cancel_order)
+    // =========================================================================
+    if (actionType === 'CANCEL_ORDER') {
+      try {
+        // Find target order ID from structured request, context, or latest order
+        let targetId = structuredReq.target_order_id || body.context?.current_booking_id || body.context?.current_order_id;
+        
+        if (!targetId) {
+          const ordersRes = await fetch(`${STORE_API_URL}/api/orders`, { cache: 'no-store' });
+          if (ordersRes.ok) {
+            const orders: RailwayOrder[] = await ordersRes.json();
+            const activeOrder = orders.find(o => o.status !== 'CANCELLED') || orders[0];
+            if (activeOrder) targetId = activeOrder.orderId;
+          }
+        }
+
+        if (!targetId) {
+          return NextResponse.json({
+            status: 'order_cancel_failed',
+            action_type: 'CANCEL_ORDER',
+            message: 'No active order was found to cancel. You can place a new order by typing "i want a mouse".'
+          });
+        }
+
+        // Call MCP cancel_order on Railway store
+        const cancelRes = await fetch(`${STORE_API_URL}/api/orders/${targetId}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (cancelRes.ok) {
+          return NextResponse.json({
+            status: 'order_cancelled',
+            action_type: 'CANCEL_ORDER',
+            cancelled_order_id: targetId,
+            message: `🛑 **Order Cancelled Successfully via MCP!**\n\nOrder \`${targetId}\` has been cancelled on the live store platform. Reserved inventory has been restored to catalog stock.`
+          });
+        } else {
+          return NextResponse.json({
+            status: 'order_cancel_failed',
+            action_type: 'CANCEL_ORDER',
+            message: `Could not cancel order \`${targetId}\`. It may have already been cancelled or settled.`
+          });
+        }
+      } catch (err) {
+        return NextResponse.json({
+          status: 'error',
+          action_type: 'CANCEL_ORDER',
+          message: 'Error executing MCP cancel_order on the live store server.'
+        });
+      }
+    }
+
+    // =========================================================================
+    // ACTION 3: ORDER STATUS (MCP get_order_status)
+    // =========================================================================
+    if (actionType === 'ORDER_STATUS') {
+      try {
+        let targetId = structuredReq.target_order_id || body.context?.current_booking_id;
+        if (!targetId) {
+          const ordersRes = await fetch(`${STORE_API_URL}/api/orders`, { cache: 'no-store' });
+          if (ordersRes.ok) {
+            const orders: RailwayOrder[] = await ordersRes.json();
+            if (orders.length > 0) targetId = orders[0].orderId;
+          }
+        }
+
+        if (targetId) {
+          const statusRes = await fetch(`${STORE_API_URL}/api/orders/${targetId}`, { cache: 'no-store' });
+          if (statusRes.ok) {
+            const o = await statusRes.json();
+            const priceStr = `₹${(o.totalAmount / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+            const statusIcon = o.status === 'PAID' ? '✅ PAID' : o.status === 'CANCELLED' ? '❌ CANCELLED' : '⏳ PENDING';
+            return NextResponse.json({
+              status: 'order_status',
+              action_type: 'ORDER_STATUS',
+              message: `🔍 **Live Order Status (via MCP):**\n• **Order ID**: \`${o.id || o.orderId}\`\n• **Status**: ${statusIcon}\n• **Total**: ${priceStr}\n• **Razorpay Reference**: \`${o.razorpayOrderId || 'N/A'}\`\n• **Settlement Token**: \`${o.razorpayPaymentId || 'N/A'}\``,
+              order: o
+            });
+          }
+        }
+
+        return NextResponse.json({
+          status: 'order_status',
+          action_type: 'ORDER_STATUS',
+          message: 'No specific order found to track. Try asking "what are my orders" to see all recent orders.'
+        });
+      } catch (err) {
+        return NextResponse.json({
+          status: 'error',
+          action_type: 'ORDER_STATUS',
+          message: 'Could not fetch order status from the live store.'
+        });
+      }
+    }
+
+    // =========================================================================
+    // ACTION 4: POLICY INQUIRY
+    // =========================================================================
+    if (actionType === 'POLICY_INQUIRY') {
+      return NextResponse.json({
+        status: 'policy_inquiry',
+        action_type: 'POLICY_INQUIRY',
+        message: `🛡️ **Merchant Financial Policy Guardrails:**\n\n• **Autonomous Approval Threshold**: ₹5,000\n  *(Orders ≤ ₹5,000 are placed immediately with zero human friction)*\n• **Maximum Transaction Ceiling**: ₹70,000\n  *(Orders > ₹70,000 are hard-blocked with 0 payment calls)*\n• **Human Authorization Band**: ₹5,000 to ₹70,000\n  *(Orders in this range require explicit user approval)*\n\n⚙️ You can dynamically reconfigure these rules anytime at **/policy**.`
+      });
+    }
+
+    // =========================================================================
+    // ACTION 5: HELP & GUIDANCE
+    // =========================================================================
+    if (actionType === 'HELP') {
+      return NextResponse.json({
+        status: 'help',
+        action_type: 'HELP',
+        message: `👋 **Welcome to the Agentic Commerce Chatbot!**\n\nHere are some things you can ask me:\n• *"i want a mouse"* or *"order StrikePad Gaming Mouse Pad XL"* — Auto-orders under ₹5,000 threshold\n• *"order NovaBook Pro 14"* — Demonstrates human authorization above threshold\n• *"what are my orders"* — Retrieves your live store order history via MCP\n• *"cancel this order"* — Cancels the active order on the live store via MCP\n• *"what is my limit"* — Explains your spending policy thresholds`
+      });
+    }
+
+    // =========================================================================
+    // ACTION 6: PRODUCT SEARCH & ORDER PLACEMENT (Default flow)
+    // =========================================================================
 
     // 1. Fetch live products from Railway MCP Store
     const productsRes = await fetch(`${STORE_API_URL}/api/products`, { cache: 'no-store' });
@@ -163,34 +352,60 @@ export async function POST(req: NextRequest) {
       return bScore - aScore;
     });
 
-    // 3. Groq LLM MCP Client: Select the single best product
-    let selected = candidatePool[0];
+    // 3. Determine if user specified an exact product name vs a generic category query
+    const exactMatch = liveProducts.find((p: RailwayProduct) => {
+      const pNameLower = p.name.toLowerCase();
+      return queryLower.includes(pNameLower) ||
+             (pNameLower.includes('strikepad') && queryLower.includes('strikepad')) ||
+             (pNameLower.includes('novabook pro') && queryLower.includes('novabook pro')) ||
+             (pNameLower.includes('novabook edu') && queryLower.includes('novabook edu')) ||
+             (pNameLower.includes('pulsebook') && queryLower.includes('pulsebook')) ||
+             (pNameLower.includes('hubconnect') && queryLower.includes('hubconnect')) ||
+             (pNameLower.includes('soundpod') && queryLower.includes('soundpod')) ||
+             (pNameLower.includes('visionmonitor') && queryLower.includes('visionmonitor')) ||
+             (pNameLower.includes('novacarry') && queryLower.includes('novacarry')) ||
+             (pNameLower.includes('steadystand') && queryLower.includes('steadystand')) ||
+             (pNameLower.includes('deskmate') && queryLower.includes('deskmate')) ||
+             (pNameLower.includes('standrise') && queryLower.includes('standrise'));
+    });
 
-    try {
-      const candidateListStr = candidatePool.slice(0, 10).map((p: RailwayProduct) => 
-        `ID: "${p.id}", Name: "${p.name}", Category: "${p.category}", Price: ₹${(p.price / 100).toLocaleString()}, Description: "${p.description || ''}"`
-      ).join('\n');
+    const isExplicitSelection = Boolean(body.selected_product_id);
+    const isExactNameGiven = Boolean(exactMatch) || isExplicitSelection;
 
-      const selectionPrompt = `You are a precision commerce matching agent.
-Buyer Request: "${message}"
-Buyer Budget: ₹${budget}
+    // IF GENERIC QUERY (e.g. "i want a mouse", "i need a laptop"):
+    // Recommend top 2-3 matching products based on query and let the user select!
+    if (!isExactNameGiven) {
+      const topCandidates = candidatePool.slice(0, 3).map((p: RailwayProduct) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        price_inr: p.price / 100.0,
+        stock: p.quantityAvailable || 20,
+        description: p.description || '',
+        imageUrl: p.imageUrl || ''
+      }));
 
-Available Candidate Products from Live Store:
-${candidateListStr}
+      const candidateListText = topCandidates.map((c, i) => 
+        `${i + 1}. **${c.name}** — ₹${c.price_inr.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (${c.category})\n   *${c.description}*`
+      ).join('\n\n');
 
-Select the single best product that accurately matches what the buyer wants and respects their budget.
-Return ONLY valid JSON in this format:
-{"selected_id": "<exact ID of the selected product>"}`;
+      const recommendationMessage = `💡 I found **${topCandidates.length} recommended options** based on your search for **"${message}"**:\n\n${candidateListText}\n\n👉 **Please select an item below to proceed to order:**`;
 
-      const llmSelection = await callLLM(selectionPrompt, 'You are an autonomous AI shopping agent. Respond with valid JSON only.');
-      const jsonMatch = llmSelection.match(/\{\s*"selected_id"\s*:\s*"([^"]+)"\s*\}/) || llmSelection.match(/"selected_id"\s*:\s*"([^"]+)"/);
-      if (jsonMatch && jsonMatch[1]) {
-        const found = candidatePool.find((p: RailwayProduct) => p.id === jsonMatch[1]);
-        if (found) selected = found;
-      }
-    } catch (llmErr) {
-      console.warn('LLM product selection notice:', llmErr);
+      return NextResponse.json({
+        status: 'awaiting_product_selection',
+        action_type: 'ORDER',
+        is_generic_query: true,
+        message: recommendationMessage,
+        candidates: topCandidates,
+        selected_product: null,
+        recommendations: [],
+        cart: [],
+        items: []
+      });
     }
+
+    // IF EXACT PRODUCT GIVEN OR SELECTED:
+    let selected = exactMatch || (body.selected_product_id ? liveProducts.find(p => p.id === body.selected_product_id) : null) || candidatePool[0];
 
     const prodPriceInr = selected.price / 100.0;
 
@@ -244,13 +459,13 @@ Return ONLY valid JSON:
     const recPriceInr = growthItem.price / 100.0;
 
     // 5. Build Merchant Response
-    const formattedMessage = `I found the **${selected.name}** for ₹${prodPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
+    const formattedMessage = `🎯 I matched **${selected.name}** for ₹${prodPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
 
-💡 **Recommendation**: ${growthReason} — ${growthItem.name} for ₹${recPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
-Would you like to add it to your basket?`;
+💡 **Growth Suggestion**: ${growthReason} — **${growthItem.name}** for ₹${recPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`;
 
     return NextResponse.json({
       status: 'awaiting_buyer_approval',
+      action_type: 'ORDER',
       message: formattedMessage,
       merchant_id: body.merchant_id || 1,
       selected_product: {

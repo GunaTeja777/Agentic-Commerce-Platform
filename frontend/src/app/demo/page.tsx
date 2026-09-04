@@ -28,6 +28,7 @@ type AgentStatus =
   | 'idle'
   | 'receiving_request'
   | 'searching_catalog'
+  | 'awaiting_product_selection'
   | 'product_selected'
   | 'growth_recommendation'
   | 'awaiting_buyer_approval'
@@ -159,6 +160,15 @@ export default function LiveDemoPage() {
     source: string;
     stock: number;
   } | null>(null);
+  const [candidates, setCandidates] = useState<Array<{
+    id: string;
+    name: string;
+    category: string;
+    price_inr: number;
+    stock?: number;
+    description?: string;
+    imageUrl?: string;
+  }>>([]);
   
   // Basket & Decision states
   const [buyerDecision, setBuyerDecision] = useState<'pending' | 'accepted' | 'skipped' | null>(null);
@@ -377,6 +387,7 @@ export default function LiveDemoPage() {
     setIsProcessing(false);
     setErrorMessage(null);
     setTimelineSteps([]);
+    setCandidates([]);
     if (typeof window !== 'undefined') {
       localStorage.removeItem('agentic_commerce_demo_session');
     }
@@ -403,13 +414,27 @@ export default function LiveDemoPage() {
       }
     };
 
+    let action = 'ORDER';
+    let targetOrderId: string | undefined = undefined;
+
     try {
       const curated = await apiService.curatePrompt(query, 'demo-ai-buyer');
       if (curated && curated.structured_request) {
+        action = curated.action_type || (
+          /\b(?:what\s+are\s+my\s+orders|show\s+my\s+orders|list\s+orders|my\s+orders|order\s+history|what\s+did\s+i\s+buy)\b/i.test(query) ? 'LIST_ORDERS' :
+          /\b(?:cancel|abort)\b/i.test(query) ? 'CANCEL_ORDER' :
+          /\b(?:order\s+status|status\s+of|track)\b/i.test(query) ? 'ORDER_STATUS' :
+          /\b(?:limit|threshold|how\s+much\s+can\s+i\s+spend|allowance)\b/i.test(query) ? 'POLICY_INQUIRY' :
+          /^(?:help|what\s+can\s+you\s+do|commands|hi|hello)\b/i.test(query) ? 'HELP' :
+          'ORDER'
+        );
+        targetOrderId = curated.target_order_id;
         structured = {
           buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
+          action_type: action,
           intent: curated.structured_request.intent || `purchase_${parsed.category}`,
           category: curated.structured_request.category || parsed.category,
+          target_order_id: targetOrderId,
           budget_inr: Number(curated.structured_request.budget_inr) || parsed.budget,
           preferences: {
             use_case: curated.structured_request.preferences?.use_case || parsed.useCase,
@@ -424,7 +449,7 @@ export default function LiveDemoPage() {
 
     setMessages([
       {
-        id: 'msg-1',
+        id: `msg-${Date.now()}`,
         sender: 'buyer',
         senderLabel: 'AI Buyer',
         content: query,
@@ -432,21 +457,180 @@ export default function LiveDemoPage() {
       }
     ]);
 
+    // =========================================================================
+    // ACTION 1: LIST MY ORDERS (MCP get_customer_orders)
+    // =========================================================================
+    if (action === 'LIST_ORDERS') {
+      setAgentState('searching_catalog');
+      setTimelineSteps([
+        { id: 't1', label: 'Intent Curated (Hugging Face)', detail: 'User requested: Retrieve live store orders', status: 'done' },
+        { id: 't2', label: 'MCP Client (Groq)', detail: 'Calling MCP tool get_customer_orders on Railway store', status: 'active' }
+      ]);
+      try {
+        const agentRes = await apiService.chatAgent({
+          message: query,
+          merchant_id: 1,
+          buyer_id: 'demo-ai-buyer',
+          structured_request: structured
+        });
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Orders Retrieved (MCP)', detail: 'Parsed live orders from PostgreSQL database', status: 'done' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: agentRes.message || 'Retrieved your orders.',
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        setAgentState('idle');
+      } catch (err) {
+        console.error('List orders error:', err);
+        setAgentState('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // =========================================================================
+    // ACTION 2: CANCEL ORDER (MCP cancel_order)
+    // =========================================================================
+    if (action === 'CANCEL_ORDER') {
+      const orderToCancel = targetOrderId || currentBookingId || undefined;
+      setAgentState('payment_pending');
+      setTimelineSteps([
+        { id: 't1', label: 'Intent Curated (Hugging Face)', detail: `User requested cancellation${orderToCancel ? ` of ${orderToCancel}` : ''}`, status: 'done' },
+        { id: 't2', label: 'MCP Client (Groq)', detail: 'Calling MCP tool cancel_order on Railway store', status: 'active' }
+      ]);
+      try {
+        const agentRes = await apiService.chatAgent({
+          message: query,
+          merchant_id: 1,
+          buyer_id: 'demo-ai-buyer',
+          context: { current_booking_id: orderToCancel },
+          structured_request: structured
+        });
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Order Cancelled (MCP)', detail: 'Stock released back to live catalog', status: 'done' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: agentRes.message || 'Order cancelled.',
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        setAgentState('failed');
+        setErrorMessage(agentRes.message || 'Order cancelled via MCP');
+        addAuditEvent({
+          id: `audit-${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+          actor: 'AI Buyer',
+          action: 'Order Cancelled via MCP',
+          reason: agentRes.message || 'User requested cancellation',
+          amount: 0,
+          result: 'Allowed',
+          category: 'Payment'
+        });
+      } catch (err) {
+        console.error('Cancel order error:', err);
+        setAgentState('failed');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // =========================================================================
+    // ACTION 3: ORDER STATUS, POLICY INQUIRY, HELP
+    // =========================================================================
+    if (action === 'ORDER_STATUS' || action === 'POLICY_INQUIRY' || action === 'HELP') {
+      setTimelineSteps([
+        { id: 't1', label: 'Intent Curated (Hugging Face)', detail: `Curated query: ${action}`, status: 'done' },
+        { id: 't2', label: 'MCP Client (Groq)', detail: 'Formulating agentic response', status: 'active' }
+      ]);
+      try {
+        const agentRes = await apiService.chatAgent({
+          message: query,
+          merchant_id: 1,
+          buyer_id: 'demo-ai-buyer',
+          context: { current_booking_id: currentBookingId },
+          structured_request: structured
+        });
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Response Generated', detail: 'Sent to conversation feed', status: 'done' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: agentRes.message,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        setAgentState('idle');
+      } catch (err) {
+        console.error('Inquiry error:', err);
+        setAgentState('idle');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // =========================================================================
+    // ACTION 4: PRODUCT SEARCH & ORDER PLACEMENT (Default flow)
+    // =========================================================================
     // Update timeline & agent state: Searching
     setAgentState('searching_catalog');
     setTimelineSteps([
-      { id: 't1', label: 'Request received', detail: `Curated intent: ${structured.category} for ${structured.preferences.use_case}, budget ₹${formatINR(structured.budget_inr)}`, status: 'done' },
-      { id: 't2', label: 'LangGraph Orchestrator', detail: `Querying Catalog Tool for ${structured.category} under ₹${formatINR(structured.budget_inr)}`, status: 'active' }
+      { id: 't1', label: 'Intent Curated (Hugging Face)', detail: `Curated intent: ${structured.category} for ${structured.preferences.use_case}, budget ₹${formatINR(structured.budget_inr)}`, status: 'done' },
+      { id: 't2', label: 'MCP Client (Groq)', detail: `Querying Catalog Tools (search_products, get_product) for ${structured.category}`, status: 'active' }
     ]);
 
     try {
-      // 2. Real API call to LangGraph Agent
+      // 2. Real API call to Groq Agent
       const agentRes = await apiService.chatAgent({
         message: query,
         merchant_id: 1,
         buyer_id: 'demo-ai-buyer',
         structured_request: structured
       });
+
+      if (agentRes.message) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: agentRes.message,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      }
+
+      if (agentRes.is_generic_query && agentRes.candidates && agentRes.candidates.length > 0) {
+        setCandidates(agentRes.candidates);
+        setAgentState('awaiting_product_selection');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Matching Options Recommended', detail: `Found ${agentRes.candidates?.length} options for "${query}". Awaiting your selection.`, status: 'active' }
+        ]);
+        return;
+      }
 
       if (agentRes.selected_product) {
         const prod: Product = {
@@ -682,6 +866,123 @@ export default function LiveDemoPage() {
           handleExecuteOrderPlacement(singleBasket, true);
         }, 400);
       }
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // User selects one of the recommended candidate products
+  const handleSelectCandidate = async (candidate: { id: string; name: string; category?: string; price_inr: number; description?: string; stock?: number; imageUrl?: string }) => {
+    setIsProcessing(true);
+    setCandidates([]);
+    
+    // 1. Set as selected product
+    const prod: Product = {
+      id: candidate.id,
+      name: candidate.name,
+      category: candidate.category || 'Peripherals',
+      price: candidate.price_inr,
+      stock: candidate.stock || 25,
+      description: candidate.description || '',
+      compatibleProducts: [],
+      frequentlyBoughtWith: [],
+      agentReadableStatus: 'Available',
+      specifications: {}
+    };
+    setSelectedProduct(prod);
+
+    const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
+    setBasketItems(singleBasket);
+
+    // 2. Add Buyer message to chat
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}`,
+        sender: 'buyer',
+        senderLabel: 'AI Buyer',
+        content: `I selected **${prod.name}** (₹${formatINR(prod.price)}). Proceed with order placement.`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }
+    ]);
+
+    // 3. Evaluate Policy Gate immediately
+    try {
+      const polCheck = await apiService.checkPolicy(prod.price, 1, {
+        maxLimit: policy.maxTransactionLimit,
+        approvalThreshold: policy.approvalThreshold
+      });
+
+      setPolicyDecision({
+        allowed: polCheck.allowed,
+        requiresApproval: polCheck.requiresApproval,
+        isAutonomous: polCheck.isAutonomous,
+        reason: polCheck.reason,
+        maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+        approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+      });
+
+      if (!polCheck.allowed) {
+        // TIER 3: HARD POLICY BLOCK
+        setAgentState('policy_blocked');
+        setTimelineSteps(prev => [
+          ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
+          { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+          { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+          { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: `Transaction blocked by Policy Gate! Price ₹${formatINR(prod.price)} exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. 0 payment calls made.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      } else if (polCheck.requiresApproval) {
+        // TIER 2: HUMAN AUTHORIZATION REQUIRED
+        setAgentState('awaiting_human_authorization');
+        setTimelineSteps(prev => [
+          ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
+          { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+          { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: `🔒 **Human Authorization Required!** ${prod.name} costs ₹${formatINR(prod.price)}, exceeding your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** in this chat.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      } else {
+        // TIER 1: ZERO-TOUCH AUTONOMOUS ORDER
+        setAgentState('payment_pending');
+        setTimelineSteps(prev => [
+          ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
+          { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+          { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(prod.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent (Groq MCP)',
+            content: `⚡ **Autonomous Policy Approval!** Price ₹${formatINR(prod.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        setTimeout(() => {
+          handleExecuteOrderPlacement(singleBasket, true);
+        }, 400);
+      }
+    } catch (err) {
+      console.error('Candidate selection policy error:', err);
     } finally {
       setIsProcessing(false);
     }
@@ -1041,7 +1342,30 @@ export default function LiveDemoPage() {
       }
     }
 
-    // 2. If currently awaiting human authorization at the Policy Gate:
+    // 2. If currently awaiting candidate product selection:
+    if (agentState === 'awaiting_product_selection' && candidates.length > 0) {
+      if (/^(1|first|one|option\s*1)\b/i.test(lower)) {
+        handleSelectCandidate(candidates[0]);
+        setBuyerInput('');
+        return;
+      } else if (/^(2|second|two|option\s*2)\b/i.test(lower) && candidates.length > 1) {
+        handleSelectCandidate(candidates[1]);
+        setBuyerInput('');
+        return;
+      } else if (/^(3|third|three|option\s*3)\b/i.test(lower) && candidates.length > 2) {
+        handleSelectCandidate(candidates[2]);
+        setBuyerInput('');
+        return;
+      }
+      const matchedCand = candidates.find(c => lower.includes(c.name.toLowerCase()) || c.name.toLowerCase().split(' ').some(w => w.length > 3 && lower.includes(w)));
+      if (matchedCand) {
+        handleSelectCandidate(matchedCand);
+        setBuyerInput('');
+        return;
+      }
+    }
+
+    // 3. If currently awaiting human authorization at the Policy Gate:
     if (agentState === 'awaiting_human_authorization') {
       if (/^(yes|approve|pay|confirm|authorize|proceed|place\s*order|ok|sure)\b/i.test(lower)) {
         handleExecuteOrderPlacement(basketItems, false);
@@ -1056,6 +1380,7 @@ export default function LiveDemoPage() {
 
     // 3. Otherwise treat as a shopping intent or direct order command
     handleStartDemo(trimmed);
+    setBuyerInput('');
   };
 
   // Run Blocked Scenario Demo: Laptop (₹65,000) + Monitor (₹12,000) = ₹77,000 > ₹70,000
@@ -1375,6 +1700,57 @@ export default function LiveDemoPage() {
                   </div>
                 ))
               )}
+              {candidates.length > 0 && agentState === 'awaiting_product_selection' && (
+                <div className="p-3 bg-purple-50/95 border border-purple-200 rounded-xl space-y-2.5 my-2 shadow-2xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-purple-900 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                      Recommended Matching Options:
+                    </span>
+                    <span className="text-[9px] text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full font-semibold">
+                      Select one to proceed
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {candidates.map((c, idx) => (
+                      <div
+                        key={c.id}
+                        className="p-2.5 bg-white rounded-lg border border-purple-100 shadow-2xs flex items-center justify-between gap-2.5 hover:border-purple-300 transition-colors"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded-full bg-purple-600 text-white text-[9px] font-bold flex items-center justify-center shrink-0">
+                              {idx + 1}
+                            </span>
+                            <h4 className="font-bold text-xs text-slate-900 truncate">
+                              {c.name}
+                            </h4>
+                          </div>
+                          <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                            {c.description}
+                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-mono font-bold text-xs text-purple-700">
+                              ₹{c.price_inr.toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                              {c.category}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectCandidate(c)}
+                          disabled={isProcessing}
+                          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold shrink-0 shadow-2xs transition-colors flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>⚡ Select &amp; Order</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div ref={chatEndRef} />
             </div>
 
@@ -1395,7 +1771,7 @@ export default function LiveDemoPage() {
                     if (e.key === 'Enter') handleChatSubmit();
                   }}
                   disabled={isProcessing}
-                  placeholder="e.g. StrikePad Gaming Mouse Pad XL order this"
+                  placeholder="e.g. 'i want a mouse' or 'what are my orders' or 'cancel this order'"
                   className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-600 disabled:bg-slate-100"
                 />
                 <button
@@ -1413,24 +1789,52 @@ export default function LiveDemoPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setBuyerInput('StrikePad Gaming Mouse Pad XL order this');
-                    handleStartDemo('StrikePad Gaming Mouse Pad XL order this');
+                    handleStartDemo('i want a mouse');
                   }}
                   disabled={isProcessing}
                   className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition-colors text-left cursor-pointer"
                 >
-                  ⚡ StrikePad Gaming Mouse Pad XL order this
+                  ⚡ i want a mouse (Auto-buy &lt; ₹5k)
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setBuyerInput('NovaBook Pro 14 order this');
-                    handleStartDemo('NovaBook Pro 14 order this');
+                    handleStartDemo('order NovaBook Pro 14');
                   }}
                   disabled={isProcessing}
                   className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition-colors text-left cursor-pointer"
                 >
-                  🔒 NovaBook Pro 14 order this (&gt; ₹5,000 threshold)
+                  🔒 order NovaBook Pro 14 (&gt; ₹5k HITL)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleStartDemo('what are my orders');
+                  }}
+                  disabled={isProcessing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors text-left cursor-pointer"
+                >
+                  📦 what are my orders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleStartDemo('cancel this order');
+                  }}
+                  disabled={isProcessing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors text-left cursor-pointer"
+                >
+                  🛑 cancel this order
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleStartDemo('what is my spending limit');
+                  }}
+                  disabled={isProcessing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition-colors text-left cursor-pointer"
+                >
+                  🛡️ spending limits
                 </button>
               </div>
             </div>

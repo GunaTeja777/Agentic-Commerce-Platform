@@ -214,17 +214,25 @@ The standalone MCP Server (`ecommerce-mcp/mcp-server/server.ts`) implements the 
 
 ## 💬 Interactive AI Buyer Chatbot Workflow
 
-The AI Buyer column at [http://localhost:3000/demo](http://localhost:3000/demo) is an interactive chatbot designed for both freeform text and structured command workflows:
+The AI Buyer column at [http://localhost:3000/demo](http://localhost:3000/demo) is a real-time, interactive commerce chatbot where users can speak naturally, and the dual-agent architecture orchestrates the required actions via live MCP tools:
 
-### Features
-1. **Always-Active Chat Bar**: Fixed at the bottom of the AI Buyer card. Type any query or command at any point and press **Enter** or click **Send**.
-2. **Auto-Scrolling Chat Feed**: Smoothly scrolls to display the newest thoughts, contracts, and recommendations.
-3. **Natural Language Decision Handling**:
-   - When the Merchant Agent suggests an upsell: respond `"yes"`, `"add"`, `"skip"`, or `"no"` directly in the chat.
-   - When human authorization is requested at the Policy Gate: respond `"approve"`, `"pay"`, `"reject"`, or `"cancel"` directly in the chat.
-4. **Instant Action Chips**:
-   - `⚡ StrikePad Gaming Mouse Pad XL order this`: Executes an immediate autonomous under-threshold order (₹800).
-   - `🔒 NovaBook Pro 14 order this`: Executes a high-value purchase triggering human authorization (₹65,000).
+### Supported Conversational Commands & MCP Tool Mapping:
+| User Command Example | Hugging Face Role (Curation) | Groq Merchant Agent Role (MCP Client) | Live MCP Tool Executed | Live Result Displayed |
+| :--- | :--- | :--- | :--- | :--- |
+| **`"i want a mouse"`** *(Generic Query)* | Curates generic query `"mouse"`, category `Peripherals` | Searches live catalog, finds multiple matching options (AeroMouse X1, AeroMouse X2, ComfortGrip Ergo Mouse) | `search_products`, `get_product` | **Recommends options based on query** with interactive **`[ ⚡ Select & Order ]`** cards. When clicked, proceeds directly to checkout! |
+| **`"StrikePad Gaming Mouse Pad XL order this"`** *(Exact Product)* | Curates exact product name | Identifies exact product match immediately, bypassing selection | `search_products`, `create_order`, `settle_order` | **Direct Order**: Price ₹800 $\le$ ₹5,000 threshold $\rightarrow$ auto-booked on live Railway store via MCP with zero human clicks! |
+| **`"order NovaBook Pro 14"`** *(Exact Product)* | Curates exact product name, budget ₹70k | Identifies exact match (₹65,000), evaluates policy $>$ ₹5,000 threshold | `search_products`, `get_product` | **Direct Order**: Pauses at Policy Gate for human authorization. Renders `[ Approve & Place Order on Website ]` in Transaction box. |
+| **`"what are my orders"`** or `📦 what are my orders` | Curates action `LIST_ORDERS` | Retrieves recent orders from live store and formats with statuses and prices | `get_customer_orders` / `GET /api/orders` | Displays live store orders list with `✅ PAID`, `⏳ PENDING`, and `❌ CANCELLED` badges directly in chat. |
+| **`"cancel this order"`** or `🛑 cancel this order` | Curates action `CANCEL_ORDER` and targets active order ID | Invokes cancellation on Railway store platform | `cancel_order` / `DELETE /api/orders/:id` | Cancels the order in PostgreSQL DB, restores reserved stock to catalog, and confirms cancellation in chat. |
+| **`"what is my spending limit"`** | Curates action `POLICY_INQUIRY` | Explains current merchant spending rules | Server-side policy rules engine | Outlines autonomous threshold (₹5,000) and max limit (₹70,000) in conversational format. |
+
+### Interactive Chat Experience Features:
+1. **Always-Active Chat Bar**: Fixed at the bottom of the AI Buyer card. Type any query or command at any point and press **Enter** or click **Send**. The text input automatically resets upon sending.
+2. **Auto-Scrolling Chat Feed**: Smoothly scrolls via `chatEndRef` to keep the newest agent thoughts, contracts, and recommendations in view.
+3. **Natural Decision Handling**:
+   - For upsells: respond `"yes"`, `"add"`, `"skip"`, or `"no"` directly in the chat.
+   - For human authorization: respond `"approve"`, `"pay"`, `"reject"`, or `"cancel"` directly in the chat.
+4. **Instant Action Chips**: One-click quick prompts at the bottom of the chat for immediate testing without typing.
 
 ---
 

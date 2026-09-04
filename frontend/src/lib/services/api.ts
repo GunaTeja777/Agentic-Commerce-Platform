@@ -122,8 +122,22 @@ export interface AgentChatResponse {
   status: string;
   message: string;
   merchant_id: number;
+  action_type?: string;
+  is_generic_query?: boolean;
+  candidates?: Array<{
+    id: string;
+    name: string;
+    category: string;
+    price_inr: number;
+    stock?: number;
+    description?: string;
+    imageUrl?: string;
+  }>;
+  orders?: any[];
+  cancelled_order_id?: string;
+  order?: any;
   selected_product?: {
-    product_id: number;
+    product_id: number | string;
     product_name: string;
     price_inr: number;
     category?: string;
@@ -132,8 +146,8 @@ export interface AgentChatResponse {
     tags?: string[];
   };
   recommendations: Array<{
-    id?: number;
-    product_id?: number;
+    id?: number | string;
+    product_id?: number | string;
     name?: string;
     product_name?: string;
     price_inr: number;
@@ -143,7 +157,7 @@ export interface AgentChatResponse {
     stock_quantity?: number;
   }>;
   cart: Array<{
-    product_id: number;
+    product_id: number | string;
     product_name: string;
     price_inr: number;
     quantity: number;
@@ -168,8 +182,10 @@ export interface AgentChatResponse {
 
 export interface StructuredBuyerPayload {
   buyer_id?: string;
+  action_type?: string;
   intent: string;
   category: string;
+  target_order_id?: string;
   budget_inr: number;
   preferences?: {
     use_case?: string;
@@ -178,8 +194,10 @@ export interface StructuredBuyerPayload {
 }
 
 export interface CuratedPromptResult {
+  action_type?: string;
   search_query: string;
   category: string;
+  target_order_id?: string;
   budget_inr?: number;
   use_case: string;
   priority_feature: string;
@@ -229,6 +247,7 @@ export const apiService = {
     merchant_id?: number;
     buyer_id?: string;
     buyer_decision?: string;
+    selected_product_id?: string;
     context?: Record<string, unknown>;
     request_id?: string;
     structured_request?: StructuredBuyerPayload;
@@ -240,6 +259,7 @@ export const apiService = {
         merchant_id: payload.merchant_id || 1,
         buyer_id: payload.buyer_id || 'demo-ai-buyer',
         buyer_decision: payload.buyer_decision,
+        selected_product_id: payload.selected_product_id,
         context: payload.context,
         request_id: payload.request_id,
         structured_request: payload.structured_request
@@ -417,6 +437,34 @@ export const apiService = {
       console.warn('updateRailwayOrderPaid proxy error:', err);
     }
     return null;
+  },
+
+  async cancelRailwayOrder(orderId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const res = await fetch('/api/orders/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId })
+      });
+      if (res.ok) {
+        return (await res.json()) as Record<string, unknown>;
+      }
+    } catch (err) {
+      console.warn('cancelRailwayOrder error:', err);
+    }
+    return null;
+  },
+
+  async getRailwayOrders(): Promise<Array<Record<string, unknown>>> {
+    try {
+      const res = await fetch('/api/orders');
+      if (res.ok) {
+        return (await res.json()) as Array<Record<string, unknown>>;
+      }
+    } catch (err) {
+      console.warn('getRailwayOrders error:', err);
+    }
+    return [];
   },
 
   async createPaymentOrder(orderId: number): Promise<PaymentOrderResponse> {
