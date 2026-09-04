@@ -1,237 +1,454 @@
-# Agentic Commerce — AI Merchant Growth Agent & A2A Platform (MCP Architecture)
+# 🚀 Agentic Commerce — AI Merchant Growth Agent & A2A Platform (MCP Architecture)
 
-> ⚠️ **CRITICAL NOTICE: THIS PROJECT USES RAZORPAY TEST MODE ONLY.**  
-> No real money is moved, no real credit/debit card numbers are stored, and production keys must never be used.
+[![Next.js](https://img.shields.io/badge/Next.js-15%20App%20Router-black?style=flat-square&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
+[![Groq](https://img.shields.io/badge/Groq-LLaMA--3.3--70B--Versatile-f55036?style=flat-square)](https://groq.com/)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-LLaMA--3.3--70B--Instruct-ffcc00?style=flat-square&logo=huggingface)](https://huggingface.co/)
+[![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-8A2BE2?style=flat-square)](https://modelcontextprotocol.io/)
+[![Razorpay](https://img.shields.io/badge/Razorpay-Test%20Mode%20Settlement-0C2340?style=flat-square&logo=razorpay)](https://razorpay.com/)
+[![Prisma](https://img.shields.io/badge/Prisma-PostgreSQL-2D3748?style=flat-square&logo=prisma)](https://www.prisma.io/)
+[![Railway](https://img.shields.io/badge/Railway-Live%20Deployment-0B0D0E?style=flat-square&logo=railway)](https://railway.app/)
 
----
-
-## 🌟 Overview
-
-**Agentic Commerce** is an autonomous **Agent-to-Agent (A2A)** commerce platform built on the **Model Context Protocol (MCP)**. It enables a **Buyer-Side AI Agent** (chatbot) to converse, discover products, negotiate, and execute purchases with a **Merchant-Side AI Growth Agent** backed by deterministic financial policy guardrails, real-time inventory management, and **Razorpay Test Mode** checkouts.
-
-### Core Architectural Layers:
-
-1. **AI Buyer Chatbot (Buyer-Side Agent)**:
-   - Interactive conversational chatbot interface in `/demo`.
-   - **Hugging Face (Meta Llama-3.3-70B-Instruct)**: Analyzes natural language prompts and curates them into structured A2A commerce intent contracts (`category`, `budget_inr`, `preferences`).
-   - Supports conversational decision commands (`"yes"`, `"add"`, `"skip"`, `"approve"`, `"pay"`) and direct order instructions (`"StrikePad Gaming Mouse Pad XL order this"`).
-
-2. **Merchant AI Agent & MCP Client (`frontend/src/app/api/agent/chat`)**:
-   - Powered by **Groq (`llama-3.3-70b-versatile`)** acting as the MCP client orchestrator.
-   - Queries live catalog products from the Model Context Protocol server.
-   - Applies token-weighted candidate scoring and catalog relationships to select precision product matches and propose data-backed growth/upsell opportunities.
-
-3. **Dynamic Policy Gate & Deterministic Guardrails (`/api/policies/check`)**:
-   - Merchants configure **Maximum Transaction Limit (₹)** (e.g., ₹70,000) and **Approval Threshold (₹)** (e.g., ₹5,000) in `/policy`.
-   - **Tier 1 (Autonomous Zero-Touch Checkout)**: If total $\le$ Approval Threshold (e.g. ₹800 $\le$ ₹5,000), the order is booked automatically on the live store website via MCP **without asking for permission**.
-   - **Tier 2 (Human Authorization Required)**: If total $>$ Approval Threshold and $\le$ Maximum Limit (e.g. ₹65,000 $>$ ₹5,000), the agent pauses at the Policy Gate and asks for user permission in the Transaction box (`[ Approve & Place Order on Website ]` / `[ Reject / Cancel ]`).
-   - **Tier 3 (Hard Policy Block)**: If total $>$ Maximum Limit (e.g. ₹77,000 $>$ ₹70,000), the transaction is blocked with **0 Razorpay API calls and 0 MCP payment executions**.
-
-4. **Model Context Protocol (MCP) Server & Live Storefront (`ecommerce-mcp/`)**:
-   - Built with `@modelcontextprotocol/sdk/server/mcp.js`.
-   - Exposes 8 standardized MCP commerce tools (`search_products`, `get_product`, `check_inventory`, `create_order`, `get_order_status`, etc.) over Streamable HTTP and REST endpoints.
-   - Authoritative PostgreSQL Database via **Prisma ORM** ensuring zero LLM hallucination of products or prices.
-   - Live deployed on Railway: [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app)
+> ⚠️ **CRITICAL SAFETY NOTICE: THIS PLATFORM OPERATES EXCLUSIVELY IN RAZORPAY TEST MODE.**  
+> No real currency is transferred, no real credit/debit card numbers are stored or processed, and production credentials must never be configured.
 
 ---
 
-## 🏛️ Dual-Agent A2A + MCP Architecture & Workflow
+## 📖 Table of Contents
+- [🌟 Executive Summary](#-executive-summary)
+- [🌐 Live Deployments & URLs](#-live-deployments--urls)
+- [🏛️ End-to-End System Architecture](#️-end-to-end-system-architecture)
+- [🤖 Dual-LLM Architecture: Hugging Face + Groq](#-dual-llm-architecture-hugging-face--groq)
+- [🛡️ Deterministic 3-Tier Policy Gate Engine](#️-deterministic-3-tier-policy-gate-engine)
+- [🛠️ The 8 Model Context Protocol (MCP) Tools](#️-the-8-model-context-protocol-mcp-tools)
+- [💬 Interactive AI Buyer Chatbot Workflow](#-interactive-ai-buyer-chatbot-workflow)
+- [💳 Razorpay Test Mode Booking & Settlement Cycle](#-razorpay-test-mode-booking--settlement-cycle)
+- [🎬 Copy-Paste Demo Scenarios & Step-by-Step Test Guide](#-copy-paste-demo-scenarios--step-by-step-test-guide)
+- [🔒 Security, Reliability & Compliance](#-security-reliability--compliance)
+- [📁 Repository Structure & Directory Map](#-repository-structure--directory-map)
+- [⚙️ Environment Variables & Configuration](#️-environment-variables--configuration)
+- [🚀 Quickstart & Local Setup Guide](#-quickstart--local-setup-guide)
+- [📜 Hackathon Submission Details](#-hackathon-submission-details)
+
+---
+
+## 🌟 Executive Summary
+
+**Agentic Commerce** is a production-grade **Agent-to-Agent (A2A)** commerce ecosystem built on Anthropic's **Model Context Protocol (MCP)** and **Razorpay Test Mode**. 
+
+As autonomous AI agents evolve from conversational assistants into economic actors capable of procuring goods on behalf of consumers, traditional e-commerce architectures face a critical bottleneck:
+- Web storefronts are designed for human eyeballs (HTML rendering, banner ads, CAPTCHAs, manual checkout funnels).
+- When AI buyers attempt to purchase online, they are blocked by bot protections, hallucinate uncataloged products, or face security vulnerabilities with unrestricted payment authorizations.
+
+**Agentic Commerce solves this challenge end-to-end** by introducing:
+1. **Interactive AI Buyer Chatbot**: Converts human conversational queries into deterministic, machine-readable A2A Commerce JSON contracts via **Hugging Face (`meta-llama/Llama-3.3-70B-Instruct`)**.
+2. **Merchant AI Growth Agent (MCP Client)**: Powered by ultra-low-latency **Groq (`llama-3.3-70b-versatile`)**, autonomously querying the live store catalog, ranking products with token relevance scoring, and proposing intelligent growth upsells.
+3. **Live Standalone MCP Server & Storefront**: Built with `@modelcontextprotocol/sdk` and Prisma ORM, deployed live on Railway with a PostgreSQL database, exposing 8 standardized tools.
+4. **Deterministic 3-Tier Policy Gate**: Real-time programmatic guardrails governing whether transactions are **auto-executed (zero-touch)**, **paused for human authorization**, or **hard-blocked**.
+5. **Autonomous Razorpay Order Creation & Settlement**: Automates the entire procurement and settlement cycle with real-time audit ledger logging.
+
+---
+
+## 🌐 Live Deployments & URLs
+
+| Service / Interface | URL | Purpose |
+| :--- | :--- | :--- |
+| **Live Remote MCP Storefront** | [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app) | Live product catalog, orders, and PostgreSQL database deployed on Railway. |
+| **A2A Interactive Demo & Chatbot** | [http://localhost:3000/demo](http://localhost:3000/demo) | Full interactive 4-column A2A demo with live chat, policy gate, and live order placement. |
+| **Dynamic Policy Engine** | [http://localhost:3000/policy](http://localhost:3000/policy) | Dynamic controls for Approval Threshold (₹), Max Limit (₹), Category Restrictions, and Velocity limits. |
+| **Audit Trail & Ledger** | [http://localhost:3000/transactions](http://localhost:3000/transactions) | Real-time immutable record of all agent interactions, policy decisions, and settlements. |
+| **Architecture Visualizer** | [http://localhost:3000/architecture](http://localhost:3000/architecture) | Interactive visual map of the entire A2A MCP data flow. |
+| **Failure Scenarios Dashboard** | [http://localhost:3000/scenarios](http://localhost:3000/scenarios) | Test harness for Policy Violation, Razorpay Signature Failure, Network Timeout, and Out-of-Stock. |
+
+---
+
+## 🏛️ End-to-End System Architecture
 
 ```
-                             USER / BUYER INTERACTIVE CHAT
-                                           │
-                                           ▼
-                           1. AI BUYER CHATBOT (Hugging Face)
-                           meta-llama/Llama-3.3-70B-Instruct
-                     Curates natural language into A2A Commerce JSON
-                                           │
-                                           ▼
-                           2. STRUCTURED A2A INTENT CONTRACT
-                            { category, budget_inr, preferences }
-                                           │
-                                           ▼
-                         3. MERCHANT AI AGENT (Groq MCP Client)
-                               llama-3.3-70b-versatile
-                                           │
-                   ┌───────────────────────┴───────────────────────┐
-                   ▼                                               ▼
-          MCP Tool: search_products                       MCP Tool: get_product
-       (Keyword match & token scoring)                 (Full specs & real inventory)
-                   │                                               │
-                   └───────────────────────┬───────────────────────┘
-                                           │ (Streamable HTTP / REST Tools)
-                                           ▼
-                  4. STANDALONE MCP SERVER & LIVE RAILWAY STORE
-                      ecommerce-mcp/ (Node.js + Prisma + Postgres)
-                  https://ai-growth-agentic-commerce-production.up.railway.app
-                                           │
-                                           ▼
-                           5. GROQ MCP CANDIDATE MATCHING
-                      Ranked real records (Zero Hallucination)
-                   (e.g., StrikePad Gaming Mouse Pad XL — ₹800)
-                                           │
-                                           ▼
-                           6. INTENT DISPATCH & POLICY GATE
-                        Is it a Direct Order ("order this", "buy")?
-                                           │
-                     ┌─────────────────────┴─────────────────────┐
-                     │ DIRECT ORDER                              │ DISCOVERY / EXPLORE
-                     ▼                                           ▼
-              Bypass Upsell Wait                        Present Growth Opportunity
-              Evaluate Policy on Item                   (Buyer replies "yes" or "skip")
-                     │                                           │
-                     └─────────────────────┬─────────────────────┘
-                                           │
-                                           ▼
-                            7. DYNAMIC POLICY GATE EVALUATION
-                                           │
-         ┌─────────────────────────────────┼─────────────────────────────────┐
-         │                                 │                                 │
-         ▼                                 ▼                                 ▼
-   TIER 1: AUTO-BUY               TIER 2: HITL APPROVAL              TIER 3: HARD BLOCK
-Total <= Approval Threshold     Total > Threshold & <= Limit      Total > Maximum Limit
-     (e.g. ₹800 <= ₹5,000)          (e.g. ₹65,000 > ₹5,000)        (e.g. ₹77,000 > ₹70,000)
-         │                                 │                                 │
-         ▼                                 ▼                                 ▼
-⚡ ZERO-TOUCH MCP BOOKING         🔒 PAUSE AT POLICY GATE            🛑 BLOCKED BY POLICY
-• Executes MCP create_order      • Asks permission in UI            • 0 MCP payment calls
-• Settles order as PAID in DB    • "[ Approve & Place Order ]"      • 0 Razorpay API calls
-• NO PERMISSION NEEDED           • Or user types "approve" in chat  • Refusal logged in audit
-         │                                 │                                 │
-         ▼                                 ▼                                 ▼
-Green MCP Receipt Displayed       User Approves -> Book on Website    Policy Block Notice
+                              USER / HUMAN BUYER
+                   (Types prompt in chat or clicks quick chip)
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │        1. AI BUYER CHATBOT            │
+                   │   meta-llama/Llama-3.3-70B-Instruct   │
+                   │        (Hugging Face Router)          │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                        A2A Structured Intent Contract
+                 { category, budget_inr, preferences, intent }
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │    2. MERCHANT AI GROWTH AGENT        │
+                   │       llama-3.3-70b-versatile         │
+                   │         (Groq MCP Client)             │
+                   └───────────────────┬───────────────────┘
+                                       │
+           ┌───────────────────────────┴───────────────────────────┐
+           ▼                                                       ▼
+   MCP Tool: search_products                               MCP Tool: get_product
+(Keyword match & token relevance)                       (Live specs & real stock count)
+           │                                                       │
+           └───────────────────────────┬───────────────────────────┘
+                                       │ Streamable MCP Protocol
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │    3. STANDALONE MCP SERVER (Node)    │
+                   │  Live on Railway + PostgreSQL DB      │
+                   │  https://ai-growth-agentic-commerce... │
+                   └───────────────────┬───────────────────┘
+                                       │
+                                       ▼
+                         Zero-Hallucination Matching
+                       (e.g., StrikePad Mouse Pad — ₹800)
+                                       │
+                                       ▼
+                   ┌───────────────────────────────────────┐
+                   │   4. DYNAMIC POLICY GATE EVALUATION   │
+                   │   Server-side Deterministic Engine    │
+                   └───────────────────┬───────────────────┘
+                                       │
+       ┌───────────────────────────────┼───────────────────────────────┐
+       │                               │                               │
+       ▼                               ▼                               ▼
+ TIER 1: AUTO-BUY            TIER 2: HITL APPROVAL            TIER 3: HARD BLOCK
+Total <= Approval Threshold    Total > Threshold & <= Limit     Total > Maximum Limit
+(e.g. ₹800 <= ₹5,000)          (e.g. ₹65,000 > ₹5,000)          (e.g. ₹77,000 > ₹70,000)
+       │                               │                               │
+       ▼                               ▼                               ▼
+ ⚡ ZERO-TOUCH ORDER           🔒 PAUSE AT GATE                🛑 POLICY VIOLATION
+• create_order on Live Store  • Renders Approve/Reject buttons • 0 Razorpay API calls
+• settle_order (Status: PAID) • Accepts "approve" in chat      • 0 MCP payment calls
+• NO PERMISSION PROMPT        • Waits for user confirmation   • Block logged in audit
+       │                               │                               │
+       ▼                               ▼                               │
+ Dark Green Receipt Displayed   User Confirms -> Settles Order         ▼
+ Booking ID & Settlement Ref    Receipt Displayed with Details  Blocked Alert Box
 ```
+
+---
+
+## 🤖 Dual-LLM Architecture: Hugging Face + Groq
+
+To eliminate vendor lock-in, optimize inference costs, and guarantee strict separation of concerns between **Buyer Intent Understanding** and **Merchant Action Execution**, this platform implements a specialized **Dual-LLM Architecture**:
+
+```
+ ┌────────────────────────────────────────┐       ┌────────────────────────────────────────┐
+ │            BUYER-SIDE AGENT            │       │           MERCHANT-SIDE AGENT          │
+ │                                        │       │                                        │
+ │ Model: meta-llama/Llama-3.3-70B        │       │ Model: llama-3.3-70b-versatile         │
+ │ Provider: Hugging Face Serverless      │       │ Provider: Groq Cloud                   │
+ │ Purpose: Question Curation & Contract  │       │ Purpose: MCP Client & Tool Execution   │
+ └───────────────────┬────────────────────┘       └───────────────────▲────────────────────┘
+                     │                                                │
+                     │ Structured A2A Intent Contract (JSON)          │
+                     └────────────────────────────────────────────────┘
+```
+
+### 1. Buyer-Side LLM: Hugging Face (`meta-llama/Llama-3.3-70B-Instruct`)
+- **Location**: `frontend/src/app/api/agent/curate/route.ts` & `frontend/src/app/api/agent/chat/route.ts`
+- **Role**: Natural language understanding, intent extraction, question curation, and schema serialization.
+- **Why Hugging Face?**: Provides open-weights LLaMA 3.3 70B inference via the standard OpenAI-compatible Serverless Router (`https://router.huggingface.co/v1`), ensuring conversational flexibility without hallucinating merchant business logic.
+- **Input**: Human prompt (e.g. `"StrikePad Gaming Mouse Pad XL order this"` or `"I need a fast laptop for video editing under ₹70,000"`).
+- **Output**: Machine-readable A2A Commerce JSON contract:
+  ```json
+  {
+    "buyer_id": "demo-ai-buyer",
+    "intent": "purchase_mouse_pad",
+    "category": "StrikePad Gaming Mouse Pad XL",
+    "budget_inr": 70000,
+    "preferences": {
+      "use_case": "gaming",
+      "priority": "performance"
+    }
+  }
+  ```
+
+### 2. Merchant-Side LLM: Groq (`llama-3.3-70b-versatile`)
+- **Location**: `frontend/src/app/api/agent/chat/route.ts`
+- **Role**: High-speed MCP Client agent, catalog scoring, growth upsell generation, and policy-guarded checkout execution.
+- **Why Groq?**: Blazing inference speeds (sub-300ms time-to-first-token). Agent-to-Agent commerce requires near-instantaneous tool evaluation and catalog searching.
+- **Execution**: Takes the curated A2A JSON contract, executes MCP tools (`search_products`, `get_product`), computes relevance weights across product titles, specs, and prices, and generates high-value, contextual upsell suggestions.
+
+---
+
+## 🛡️ Deterministic 3-Tier Policy Gate Engine
+
+LLMs can be tricked by prompt injection, jailbreaks, or hallucinations. Therefore, **payment authorization is NEVER entrusted to LLM judgment**.
+
+All financial policy decisions are enforced by a **deterministic, server-side rule engine** located in `frontend/src/app/api/policies/check/route.ts` and dynamically configured in `/policy`:
+
+| Policy Tier | Mathematical Condition | Real-World Example | Agent Behavior |
+| :--- | :--- | :--- | :--- |
+| **Tier 1: Autonomous Zero-Touch** | $\text{Total} \le \text{Approval Threshold}$ | StrikePad Mouse Pad (₹800) $\le$ ₹5,000 Threshold | **Direct Auto-Order**: Order is booked and settled immediately on the live store via MCP without asking permission. Zero confirmation buttons shown. |
+| **Tier 2: Human Authorization Required** | $\text{Approval Threshold} < \text{Total} \le \text{Max Limit}$ | NovaBook Pro 14 (₹65,000) $>$ ₹5,000 Threshold | **Pause & Ask**: Pauses execution at the Policy Gate. Shows `[ Approve & Place Order on Website (Pay ₹65,000) ]` and `[ Reject / Cancel Order ]`. Also accepts `"approve"` in chat. |
+| **Tier 3: Hard Policy Violation Block** | $\text{Total} > \text{Maximum Transaction Limit}$ | Workstation + 4K Monitor (₹77,000) $>$ ₹70,000 Limit | **Hard Block**: Refuses transaction immediately. **Zero (0) Razorpay API calls and zero (0) MCP payment calls**. Violation logged in audit ledger. |
+
+### Dynamic Merchant Policy Controls (`/policy`)
+Merchants can adjust these parameters in real time with immediate cross-application synchronization:
+- **Approval Threshold (₹)**: Purchases below this amount require zero human intervention (e.g., default: ₹5,000).
+- **Maximum Transaction Limit (₹)**: Hard ceiling above which no transaction can proceed (e.g., default: ₹70,000).
+- **Velocity Limits**: Maximum transactions allowed per hour (default: 5).
+- **Category Whitelist / Blacklist**: Programmatically restrict agent purchasing in sensitive categories (e.g. Gift Cards, Crypto).
 
 ---
 
 ## 🛠️ The 8 Model Context Protocol (MCP) Tools
 
-The MCP Server (`ecommerce-mcp/mcp-server/server.ts`) exposes 8 tools adhering strictly to the Model Context Protocol specification:
+The standalone MCP Server (`ecommerce-mcp/mcp-server/server.ts`) implements the official `@modelcontextprotocol/sdk` standard. It exposes 8 standardized tools backed by PostgreSQL and Prisma ORM:
 
-| Tool | Parameters | Description |
-| :--- | :--- | :--- |
-| `search_products` | `query: string` | Search store catalog by keyword across title and description. |
-| `get_product` | `product_id: string` | Fetch complete details, pricing, and stock for a specific product ID. |
-| `get_products_by_category` | `category: string` | List all catalog items belonging to a category or slug. |
-| `check_inventory` | `product_id: string` | Real-time available stock verification prior to order placement. |
-| `create_order` | `customer_email`, `items` | Reserves inventory and creates an authoritative order + Razorpay Test Order. |
-| `get_order_status` | `order_id: string` | Inspect order fulfillment status (`PENDING`, `PAID`, `CANCELLED`). |
-| `cancel_order` | `order_id: string` | Cancels an order and releases reserved inventory back to the catalog. |
-| `get_customer_orders` | `customer_email: string` | Retrieve complete order history for a given customer. |
-
----
-
-## 💬 How the AI Buyer Chatbot Works
-
-### 1. Interactive Chat Experience
-- The AI Buyer card at [http://localhost:3000/demo](http://localhost:3000/demo) functions as a live chatbot.
-- Chat input is always active with support for the **Enter** key and **Send** button.
-- The conversation messages thread automatically scrolls to the newest exchange.
-
-### 2. Conversational Intent & Quick Chips
-- Users can click fast action chips or type any instruction:
-  - `⚡ StrikePad Gaming Mouse Pad XL order this`: Executes a direct purchase. Since price is ₹800 $\le$ ₹5,000 threshold, it executes zero-touch autonomous checkout on the live website.
-  - `🔒 NovaBook Pro 14 order this`: Selects the ₹65,000 laptop. Since ₹65,000 $>$ ₹5,000 threshold, the agent pauses at the Policy Gate and asks for user authorization in the Transaction box.
-
-### 3. Natural Language Replies
-- When an upsell recommendation is proposed:
-  - User can click `[ Add to Basket ]` or `[ Skip ]`, OR simply type `"yes"`, `"add"`, `"skip"`, or `"no"` in the chat.
-- When human authorization is requested at the Policy Gate:
-  - User can click `[ Approve & Place Order on Website ]` or `[ Reject / Cancel Order ]`, OR type `"approve"` / `"pay"` / `"reject"` into the chat input.
+| # | Tool Name | Parameters | Description |
+| :-: | :--- | :--- | :--- |
+| **1** | `search_products` | `query: string` | Semantic and keyword catalog search across product title, category, and description. |
+| **2** | `get_product` | `product_id: string` | Retrieves complete product specifications, real-time price in paise, and stock count. |
+| **3** | `get_products_by_category` | `category: string` | Returns all catalog items belonging to a category or category slug. |
+| **4** | `check_inventory` | `product_id: string` | Real-time atomic inventory verification prior to order placement. |
+| **5** | `create_order` | `customer_email: string`, `items: array` | Atomically reserves stock, creates a database order record, and generates a Razorpay Test Order. |
+| **6** | `verify_payment_policy` | `amount_inr: number`, `category: string` | Evaluates whether a proposed order complies with merchant velocity and threshold limits. |
+| **7** | `settle_order` | `order_id: string`, `payment_id: string` | Autonomous agent settlement tool. Marks database order as `PAID` with agent transaction token. |
+| **8** | `get_order_status` | `order_id: string` | Queries fulfillment status (`PENDING`, `PAID`, `CANCELLED`) and tracking details. |
 
 ---
 
-## 🔒 Policy Gate Configuration (`/policy`)
+## 💬 Interactive AI Buyer Chatbot Workflow
 
-The Merchant Policy Gate is fully dynamic and configurable in real-time:
+The AI Buyer column at [http://localhost:3000/demo](http://localhost:3000/demo) is an interactive chatbot designed for both freeform text and structured command workflows:
 
-- **Maximum Transaction Limit (₹)** (Default: `₹70,000`):
-  - Hard cap on any basket total. Anything exceeding this limit is blocked immediately with 0 payment calls.
-- **Approval Threshold (₹)** (Default: `₹5,000`):
-  - Autonomy ceiling. Purchases at or below this value are considered routine/low-risk and proceed with zero-touch checkout. Purchases above this value require explicit human authorization before execution.
+### Features
+1. **Always-Active Chat Bar**: Fixed at the bottom of the AI Buyer card. Type any query or command at any point and press **Enter** or click **Send**.
+2. **Auto-Scrolling Chat Feed**: Smoothly scrolls to display the newest thoughts, contracts, and recommendations.
+3. **Natural Language Decision Handling**:
+   - When the Merchant Agent suggests an upsell: respond `"yes"`, `"add"`, `"skip"`, or `"no"` directly in the chat.
+   - When human authorization is requested at the Policy Gate: respond `"approve"`, `"pay"`, `"reject"`, or `"cancel"` directly in the chat.
+4. **Instant Action Chips**:
+   - `⚡ StrikePad Gaming Mouse Pad XL order this`: Executes an immediate autonomous under-threshold order (₹800).
+   - `🔒 NovaBook Pro 14 order this`: Executes a high-value purchase triggering human authorization (₹65,000).
 
 ---
 
-## 📁 Repository Structure
+## 💳 Razorpay Test Mode Booking & Settlement Cycle
+
+Every order placed by the agent follows the official Razorpay payment lifecycle:
+
+1. **Order Creation (`POST /api/orders/create`)**:
+   - The MCP client sends the finalized basket to the store API.
+   - The server verifies inventory, locks stock, calculates line totals in paise (`amount = inr * 100`), and creates a Razorpay Test Order (`order_...`).
+   - The database record is stored with status `PENDING`.
+2. **Autonomous Agent Settlement (`POST /api/orders/settle`)**:
+   - For authorized orders, the agent invokes settlement on the live store with a cryptographically traceable settlement ID (`pay_agent_mcp_...`).
+   - The server marks the order status as `PAID`, logs the payment reference, and decrements catalog inventory.
+3. **Cryptographic Signature Verification**:
+   - For webhooks and callbacks, HMAC SHA-256 signatures are verified using `RAZORPAY_KEY_SECRET`:
+     ```ts
+     const expectedSignature = crypto
+       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+       .digest('hex');
+     ```
+4. **Audit Logging**:
+   - Every state transition is written to the immutable transaction ledger with timestamp, agent ID, policy decision, and Razorpay reference.
+
+---
+
+## 🎬 Copy-Paste Demo Scenarios & Step-by-Step Test Guide
+
+### Scenario 1: Autonomous Auto-Buy Under Threshold ($\le$ ₹5,000)
+*Demonstrates zero-touch agentic purchasing without human friction.*
+
+1. Navigate to [http://localhost:3000/demo](http://localhost:3000/demo).
+2. Click the quick chip: **`⚡ StrikePad Gaming Mouse Pad XL order this`**  
+   *(or type `StrikePad Gaming Mouse Pad XL order this` into the chat and press Enter)*.
+3. **What Happens**:
+   - **Hugging Face** parses intent and curates the A2A contract for `StrikePad Gaming Mouse Pad XL` (₹800).
+   - **Groq** matches the exact item in the live catalog via `search_products`.
+   - **Policy Gate** evaluates: ₹800 $\le$ ₹5,000 Approval Threshold $\rightarrow$ **`AUTO-BUY (Zero-Touch)`**.
+   - **The agent directly books and settles the order on the live website via MCP without asking for permission**.
+4. **Result**:
+   - The Transaction box immediately renders the dark green receipt:
+     - `✓ Booked on Live Website (via MCP)`
+     - Status: `PAID`
+     - Live Store Booking ID (e.g., `cmtms...`), Razorpay Order ID, and Settlement ID.
+
+---
+
+### Scenario 2: Human Authorization Required ($>$ ₹5,000)
+*Demonstrates programmatic financial guardrails pausing high-value orders.*
+
+1. Navigate to [http://localhost:3000/demo](http://localhost:3000/demo).
+2. Click the quick chip: **`🔒 NovaBook Pro 14 order this`**  
+   *(or type `I need a laptop for work under ₹70,000` into the chat and press Enter)*.
+3. **What Happens**:
+   - **Hugging Face** curates the intent contract for a high-performance laptop.
+   - **Groq** retrieves `NovaBook Pro 14` (₹65,000) from the live store catalog.
+   - **Policy Gate** evaluates: ₹65,000 $>$ ₹5,000 Approval Threshold $\rightarrow$ **`POLICY GATE: HUMAN APPROVAL REQUIRED`**.
+   - Execution pauses safely at the gate.
+4. **Result**:
+   - The Policy Gate badge shows `APPROVAL NEEDED`.
+   - The Transaction box displays:
+     - `[ Approve & Place Order on Website (Pay ₹65,000) ]`
+     - `[ Reject / Cancel Order ]`
+5. **Completion**:
+   - Click `Approve & Place Order on Website` (or type `"approve"` in chat).
+   - The agent invokes MCP `create_order` + `settle_order` on Railway, marking the order `PAID` and displaying the green receipt.
+
+---
+
+### Scenario 3: Hard Policy Limit Block ($>$ ₹70,000)
+*Demonstrates fail-closed protection against out-of-policy spending.*
+
+1. In the top navigation bar, click **Run Blocked Scenario**.
+2. **What Happens**:
+   - The basket contains `Workstation Laptop` (₹65,000) + `UltraView 4K Monitor` (₹12,000) = **₹77,000**.
+   - **Policy Gate** evaluates: ₹77,000 $>$ ₹70,000 Maximum Transaction Limit $\rightarrow$ **`HARD POLICY BLOCK`**.
+3. **Result**:
+   - Transaction is immediately blocked with an alert.
+   - **Exactly 0 Razorpay API calls and 0 MCP payment calls are executed**.
+   - Refusal is logged in the Audit Trail (`/transactions`).
+
+---
+
+### Scenario 4: Dynamic Policy Adjustment
+*Demonstrates live re-configuration of merchant thresholds.*
+
+1. Navigate to [http://localhost:3000/policy](http://localhost:3000/policy).
+2. Lower the **Approval Threshold (₹)** from `5000` to `1000`, and click **Save Policy Settings**.
+3. Return to `/demo` and enter: `"i want a HubConnect Pro USB Hub"` (₹2,500).
+4. **Result**:
+   - Previously, ₹2,500 was auto-approved under ₹5,000.
+   - Now, because ₹2,500 $>$ ₹1,000, the Policy Gate automatically pauses and requests human authorization!
+
+---
+
+## 🔒 Security, Reliability & Compliance
+
+1. **Deterministic Financial Guardrails**: All policy decisions run server-side in TypeScript/FastAPI. LLM prompts cannot override threshold ceilings or category restrictions.
+2. **Database as Single Source of Truth**: Live products, prices, and stock exist in PostgreSQL via Prisma ORM. Agents cannot hallucinate uncataloged items or alter pricing.
+3. **Fail-Closed Architecture**: If an API error, network timeout, or schema mismatch occurs, transactions fail closed with 0 payment calls.
+4. **Server-Side Price Computation**: All calculations are executed server-side in paise (`price_inr * 100`). Client-supplied pricing is discarded.
+5. **HMAC SHA-256 Signature Verification**: Every Razorpay callback is cryptographically verified server-side using `RAZORPAY_KEY_SECRET`.
+6. **Secret Isolation**: Private API keys (`GROQ_API_KEY`, `HUGGINGFACE_API_TOKEN`, `RAZORPAY_KEY_SECRET`) remain on the server and are never exposed to client browsers.
+7. **Immutable Audit Trail**: Every A2A session, policy check, and payment attempt is logged to the PostgreSQL audit ledger for auditability.
+
+---
+
+## 📁 Repository Structure & Directory Map
 
 ```
 AI-Growth-Agentic-Commerce/
-├── ecommerce-mcp/      # Live MCP Server + Next.js Storefront (Prisma + Postgres + Razorpay)
-│   ├── mcp-server/     # Standalone MCP Server implementation (server.ts)
-│   ├── prisma/         # PostgreSQL schema (schema.prisma) & migrations
-│   ├── app/            # Storefront API routes (/api/products, /api/orders, webhooks)
-│   └── lib/            # Shared database, product catalog, and order managers
-├── frontend/           # Next.js 15 App Router Frontend & MCP Client Dashboard
-│   ├── src/app/        # Overview, Demo, Failure Scenarios, Catalog, Policy, Transactions
-│   ├── src/app/api/    # MCP Client Agent routes (/api/agent/chat, /api/agent/curate, /api/policies/check, /api/orders)
-│   ├── src/context/    # CommerceContext state synchronizer (dynamic policy limits)
-│   └── src/lib/        # API client services & types
-├── backend/            # FastAPI PostgreSQL Python backend engine (alternative / test suite)
-│   ├── app/models/     # SQLAlchemy ORM models (Product, Order, Transaction, Policy, Audit)
-│   └── app/services/   # PaymentService, PolicyService, CatalogService
-├── agent/              # Python LangGraph Merchant Agent service (alternative / test suite)
-│   ├── app/graph/      # StateGraph workflow and node definitions
-│   └── app/tools/      # Catalog, Growth, Policy, and Payment tools
-└── README.md           # Architecture, documentation, and setup guide
+├── ecommerce-mcp/                      # Live MCP Server + Storefront (Railway Deployment)
+│   ├── mcp-server/
+│   │   └── server.ts                   # Standalone Model Context Protocol (MCP) server
+│   ├── prisma/
+│   │   └── schema.prisma               # PostgreSQL models (Product, Order, OrderItem)
+│   ├── app/
+│   │   ├── api/products/route.ts       # Live catalog search API
+│   │   ├── api/orders/create/route.ts  # Database order & Razorpay order creation
+│   │   ├── api/orders/settle/route.ts  # Autonomous agent settlement API
+│   │   └── api/webhooks/razorpay/      # HMAC-verified Razorpay webhook listener
+│   └── lib/
+│       ├── db.ts                       # Prisma client connection
+│       └── products.ts                 # Catalog helper utilities
+│
+├── frontend/                           # Next.js 15 App Router Frontend & MCP Client
+│   ├── src/app/
+│   │   ├── demo/page.tsx               # 4-column Interactive A2A Demo & Chatbot
+│   │   ├── policy/page.tsx             # Dynamic Policy Gate configuration dashboard
+│   │   ├── transactions/page.tsx       # Real-time transaction audit ledger
+│   │   ├── architecture/page.tsx       # System architecture interactive diagram
+│   │   ├── scenarios/page.tsx          # Automated failure scenario test harness
+│   │   └── api/
+│   │       ├── agent/curate/route.ts   # Hugging Face LLaMA 3.3 70B Question Curation
+│   │       ├── agent/chat/route.ts     # Groq LLaMA 3.3 70B MCP Client Agent
+│   │       ├── policies/check/route.ts # Deterministic 3-Tier Policy Gate Engine
+│   │       └── orders/                 # Proxies for live store order creation & settlement
+│   ├── src/context/
+│   │   └── CommerceContext.tsx         # Cross-application policy limits state synchronizer
+│   └── src/lib/
+│       └── mock-data/                  # Fallback datasets and initial policy defaults
+│
+├── backend/                            # FastAPI Python Backend (Alternative / Microservice)
+│   ├── app/models/                     # SQLAlchemy ORM models
+│   ├── app/services/                   # PaymentService, PolicyService, CatalogService
+│   └── app/main.py                     # FastAPI application entrypoint
+│
+├── agent/                              # Python LangGraph Agent (Alternative / Microservice)
+│   ├── app/graph/                      # LangGraph StateGraph nodes and workflows
+│   ├── app/tools/                      # Python MCP tool implementations
+│   └── .env                            # Python environment configuration
+│
+└── README.md                           # Comprehensive project documentation
 ```
 
 ---
 
-## ⚙️ Environment Variables
+## ⚙️ Environment Variables & Configuration
 
-### Frontend (`frontend/.env.local` / `agent/.env`)
+Create or update `.env` in `frontend/` and `agent/`:
+
+### Frontend Configuration (`frontend/.env.local` or `frontend/.env`)
 ```bash
+# Live Railway Storefront & MCP Server
 NEXT_PUBLIC_STORE_URL=https://ai-growth-agentic-commerce-production.up.railway.app
 STORE_API_URL=https://ai-growth-agentic-commerce-production.up.railway.app
+
+# Internal API Base Routes
 NEXT_PUBLIC_API_URL=/api
 NEXT_PUBLIC_AGENT_URL=/api
+
+# Groq Cloud API Key (for Merchant MCP Client Agent)
 GROQ_API_KEY=gsk_...
+
+# Hugging Face API Token (for Buyer Question Curation)
 HUGGINGFACE_API_TOKEN=hf_...
+
+# Razorpay Test Mode Credentials
+RAZORPAY_KEY_ID=rzp_test_...
+RAZORPAY_KEY_SECRET=...
 ```
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Quickstart & Local Setup Guide
 
-### 1. Running the Frontend Dashboard & MCP Client
+### Prerequisites
+- **Node.js**: v18+ or v20+
+- **npm** or **pnpm**
+- **Git**
 
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/GunaTeja777/AI-Growth-Agentic-Commerce.git
+cd AI-Growth-Agentic-Commerce
+```
+
+### Step 2: Install Frontend Dependencies
 ```bash
 cd frontend
 npm install
+```
+
+### Step 3: Configure Environment Variables
+Ensure your `frontend/.env.local` contains valid API keys for `GROQ_API_KEY` and `HUGGINGFACE_API_TOKEN`.
+
+### Step 4: Launch the Development Server
+```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser:
-
-- **Live Interactive A2A Demo & Chatbot**: [http://localhost:3000/demo](http://localhost:3000/demo)
+### Step 5: Open in Your Browser
+Visit [http://localhost:3000](http://localhost:3000) to view the application:
+- **Interactive A2A Demo & Chatbot**: [http://localhost:3000/demo](http://localhost:3000/demo)
 - **Policy Engine Controls**: [http://localhost:3000/policy](http://localhost:3000/policy)
-- **Transactions Ledger**: [http://localhost:3000/transactions](http://localhost:3000/transactions)
-- **Live Railway Store**: [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app)
+- **Transaction Audit Ledger**: [http://localhost:3000/transactions](http://localhost:3000/transactions)
+- **Live Railway Storefront**: [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app)
 
 ---
 
-## 🎬 Testing the Demo Scenarios
+## 📜 Hackathon Submission Details
 
-1. **Scenario 1: Autonomous Zero-Touch Order ($\le$ Threshold)**
-   - In the AI Buyer chat, type: `"StrikePad Gaming Mouse Pad XL order this"` and press Enter.
-   - Matched product: **StrikePad Gaming Mouse Pad XL** (₹800).
-   - Since ₹800 $\le$ ₹5,000 threshold, the agent automatically creates and settles the order on the live store website via MCP.
-   - Result: Dark green receipt card appears with `"✓ Booked on Live Website (via MCP)"`, Store Booking ID, and status `"PAID"`.
-
-2. **Scenario 2: Human Authorization Required ($>$ Threshold)**
-   - In the AI Buyer chat, type: `"NovaBook Pro 14 order this"` and press Enter.
-   - Matched product: **NovaBook Pro 14** (₹65,000).
-   - Since ₹65,000 $>$ ₹5,000 threshold, the agent pauses at the Policy Gate.
-   - Result: Amber box appears in the Transaction column: `"Human Authorization Required"`. Click `[ Approve & Place Order on Website (Pay ₹65,000) ]` or type `"approve"` in chat to finalize the order.
-
-3. **Scenario 3: Hard Policy Limit Block ($>$ Maximum Limit)**
-   - Click `"Run Blocked Scenario"` in the top bar.
-   - Basket total is ₹77,000 (Workstation + UltraView 4K Monitor).
-   - Since ₹77,000 $>$ ₹70,000 maximum limit, the Policy Gate hard-blocks the transaction.
-   - Result: Red policy blocked card displayed. Exactly 0 Razorpay API calls and 0 MCP payment calls made.
-
----
-
-## 📜 License
-
-MIT License. Built for the Razorpay Ideathon / Hackathon.
+- **Event**: Razorpay Ideathon / Hackathon
+- **Theme**: AI Growth & Agentic Commerce / Agent-to-Agent (A2A) Protocols
+- **Core Technologies**: Model Context Protocol (MCP), Groq LLaMA 3.3 70B, Hugging Face LLaMA 3.3 70B, Next.js 15, PostgreSQL, Prisma ORM, Razorpay Test Mode.
+- **License**: MIT License. Open source and free for commercial or experimental use.

@@ -189,6 +189,33 @@ export default function LiveDemoPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Keep policy decision in sync with current basket total and policy limits
+  React.useEffect(() => {
+    if (!selectedProduct) {
+      setPolicyDecision(null);
+      return;
+    }
+    const currentTotal = basketItems.length > 0
+      ? basketItems.reduce((acc, curr) => acc + curr.price, 0)
+      : selectedProduct.price;
+
+    apiService.checkPolicy(currentTotal, 1, {
+      maxLimit: policy.maxTransactionLimit,
+      approvalThreshold: policy.approvalThreshold
+    }).then(polCheck => {
+      setPolicyDecision({
+        allowed: polCheck.allowed,
+        requiresApproval: polCheck.requiresApproval,
+        isAutonomous: polCheck.isAutonomous,
+        reason: polCheck.reason,
+        maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+        approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+      });
+    }).catch(err => {
+      console.warn('Policy evaluation sync notice:', err);
+    });
+  }, [basketItems, selectedProduct, policy.approvalThreshold, policy.maxTransactionLimit]);
+
   // Dynamic live parsed prompt intent
   const liveParsed = parsePromptDetails(buyerInput);
   const effectiveBudget = structuredRequest?.budget_inr || liveParsed.budget;
@@ -436,178 +463,97 @@ export default function LiveDemoPage() {
         };
         setSelectedProduct(prod);
 
-        const isDirectOrder = /order\s+this|order\b|buy\b|purchase\b|checkout\b/i.test(query);
+        const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
+        setBasketItems(singleBasket);
 
-        if (isDirectOrder) {
-          // DIRECT ORDER: Order this product directly based on dynamic policy threshold
-          const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
-          setBasketItems(singleBasket);
-
-          if (agentRes.recommendations && agentRes.recommendations.length > 0) {
-            const rec = agentRes.recommendations[0];
-            setRecommendation({
-              id: String(rec.id),
-              name: rec.name || 'Recommended Accessory',
-              price: rec.price_inr || 0,
-              reason: rec.reason || 'Frequently bought together with this product',
-              source: 'Merchant catalog relationship',
-              stock: rec.stock || 20
-            });
-          }
-
-          try {
-            const polCheck = await apiService.checkPolicy(prod.price, 1, {
-              maxLimit: policy.maxTransactionLimit,
-              approvalThreshold: policy.approvalThreshold
-            });
-            setPolicyDecision({
-              allowed: polCheck.allowed,
-              requiresApproval: polCheck.requiresApproval,
-              isAutonomous: polCheck.isAutonomous,
-              reason: polCheck.reason,
-              maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
-              approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
-            });
-
-            if (!polCheck.allowed) {
-              setAgentState('policy_blocked');
-              setTimelineSteps(prev => [
-                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
-                { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
-                { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
-              ]);
-              setMessages(prev => [
-                ...prev,
-                {
-                  id: `msg-${Date.now()}`,
-                  sender: 'merchant',
-                  senderLabel: 'Merchant AI Agent (LangGraph)',
-                  content: `I found ${prod.name} (₹${formatINR(prod.price)}), but this transaction exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Blocked by Policy Gate. 0 payment calls made.`,
-                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-                }
-              ]);
-            } else if (polCheck.requiresApproval) {
-              setAgentState('awaiting_human_authorization');
-              setTimelineSteps(prev => [
-                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
-                { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
-              ]);
-              setMessages(prev => [
-                ...prev,
-                {
-                  id: `msg-${Date.now()}`,
-                  sender: 'merchant',
-                  senderLabel: 'Merchant AI Agent (LangGraph)',
-                  content: `I selected ${prod.name} for ₹${formatINR(prod.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
-                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-                }
-              ]);
-            } else {
-              setAgentState('payment_pending');
-              setTimelineSteps(prev => [
-                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
-                { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(prod.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
-              ]);
-              setMessages(prev => [
-                ...prev,
-                {
-                  id: `msg-${Date.now()}`,
-                  sender: 'merchant',
-                  senderLabel: 'Merchant AI Agent (LangGraph)',
-                  content: `⚡ Direct Order Confirmed! Price ₹${formatINR(prod.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
-                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-                }
-              ]);
-              setTimeout(() => {
-                handleExecuteOrderPlacement(singleBasket, true);
-              }, 400);
-            }
-          } catch (polErr) {
-            console.warn('Direct order policy check notice:', polErr);
-          }
-        } else if (agentRes.recommendations && agentRes.recommendations.length > 0) {
-          // 3. Growth recommendation from LangGraph Growth Tool
+        if (agentRes.recommendations && agentRes.recommendations.length > 0) {
           const rec = agentRes.recommendations[0];
-          const recName = rec.name || 'Recommended Accessory';
-          const recPrice = rec.price_inr || 0;
           setRecommendation({
             id: String(rec.id),
-            name: recName,
-            price: recPrice,
+            name: rec.name || 'Recommended Accessory',
+            price: rec.price_inr || 0,
             reason: rec.reason || 'Frequently bought together with this product',
             source: 'Merchant catalog relationship',
             stock: rec.stock || 20
           });
+        }
 
-          setAgentState('awaiting_buyer_approval');
-          setTimelineSteps(prev => [
-            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-            { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
-            { id: 't4', label: 'Growth Tool', detail: 'Found data-backed upsell opportunity', status: 'done' },
-            { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recName} (+₹${formatINR(recPrice)})`, status: 'active' }
-          ]);
-          setBasketItems([{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }]);
+        try {
+          const polCheck = await apiService.checkPolicy(prod.price, 1, {
+            maxLimit: policy.maxTransactionLimit,
+            approvalThreshold: policy.approvalThreshold
+          });
+          setPolicyDecision({
+            allowed: polCheck.allowed,
+            requiresApproval: polCheck.requiresApproval,
+            isAutonomous: polCheck.isAutonomous,
+            reason: polCheck.reason,
+            maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+            approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+          });
 
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'merchant',
-              senderLabel: 'Merchant AI Agent (LangGraph)',
-              content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
-              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-            }
-          ]);
-        } else {
-          setAgentState('building_basket');
-          setTimelineSteps(prev => [
-            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-            { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' }
-          ]);
-
-          const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
-          setBasketItems(singleBasket);
-
-          try {
-            const polCheck = await apiService.checkPolicy(prod.price, 1, {
-              maxLimit: policy.maxTransactionLimit,
-              approvalThreshold: policy.approvalThreshold
-            });
-            setPolicyDecision({
-              allowed: polCheck.allowed,
-              requiresApproval: polCheck.requiresApproval,
-              isAutonomous: polCheck.isAutonomous,
-              reason: polCheck.reason,
-              maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
-              approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
-            });
-
-            if (!polCheck.allowed) {
-              setAgentState('policy_blocked');
-            } else if (polCheck.requiresApproval) {
-              setAgentState('awaiting_human_authorization');
-            } else {
-              setTimeout(() => {
-                handleExecuteOrderPlacement(singleBasket, true);
-              }, 400);
-            }
-          } catch (polErr) {
-            console.warn('Single item policy check:', polErr);
+          if (!polCheck.allowed) {
+            // TIER 3: HARD POLICY BLOCK (> maxTransactionLimit)
+            setAgentState('policy_blocked');
+            setTimelineSteps(prev => [
+              ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+              { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+              { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+              { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
+            ]);
+            setMessages(prev => [
+              ...prev,
+              {
+                id: `msg-${Date.now()}`,
+                sender: 'merchant',
+                senderLabel: 'Merchant AI Agent (LangGraph)',
+                content: `I found ${prod.name} (₹${formatINR(prod.price)}), but this transaction exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Blocked by Policy Gate. 0 payment calls made.`,
+                timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+              }
+            ]);
+          } else if (polCheck.requiresApproval) {
+            // TIER 2: HUMAN AUTHORIZATION REQUIRED (> approvalThreshold)
+            setAgentState('awaiting_human_authorization');
+            setTimelineSteps(prev => [
+              ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+              { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+              { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+            ]);
+            setMessages(prev => [
+              ...prev,
+              {
+                id: `msg-${Date.now()}`,
+                sender: 'merchant',
+                senderLabel: 'Merchant AI Agent (LangGraph)',
+                content: `I selected ${prod.name} for ₹${formatINR(prod.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+                timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+              }
+            ]);
+          } else {
+            // TIER 1: ZERO-TOUCH AUTONOMOUS ORDER (<= approvalThreshold)
+            // Directly orders on the website without asking for permission!
+            setAgentState('payment_pending');
+            setTimelineSteps(prev => [
+              ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+              { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+              { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(prod.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
+            ]);
+            setMessages(prev => [
+              ...prev,
+              {
+                id: `msg-${Date.now()}`,
+                sender: 'merchant',
+                senderLabel: 'Merchant AI Agent (LangGraph)',
+                content: `⚡ Autonomous Policy Approval! Price ₹${formatINR(prod.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+                timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+              }
+            ]);
+            setTimeout(() => {
+              handleExecuteOrderPlacement(singleBasket, true);
+            }, 400);
           }
-
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'merchant',
-              senderLabel: 'Merchant AI Agent (LangGraph)',
-              content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
-              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-            }
-          ]);
+        } catch (polErr) {
+          console.warn('Policy evaluation notice:', polErr);
         }
       } else {
         // No product matched or blocked by search constraints
@@ -656,131 +602,85 @@ export default function LiveDemoPage() {
 
       setSelectedProduct(matched);
 
-      const isDirectOrder = /order\s+this|order\b|buy\b|purchase\b|checkout\b/i.test(query);
+      const singleBasket = [{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }];
+      setBasketItems(singleBasket);
+      setRecommendation({
+        id: accMatched.id,
+        name: accMatched.name,
+        price: accMatched.price,
+        reason: `Compatible accessory pairing for ${matched.name}`,
+        source: 'Live MCP Store relationship',
+        stock: accMatched.stock
+      });
 
-      if (isDirectOrder) {
-        const singleBasket = [{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }];
-        setBasketItems(singleBasket);
-        setRecommendation({
-          id: accMatched.id,
-          name: accMatched.name,
-          price: accMatched.price,
-          reason: `Compatible accessory pairing for ${matched.name}`,
-          source: 'Live MCP Store relationship',
-          stock: accMatched.stock
-        });
+      const polCheck = await apiService.checkPolicy(matched.price, 1, {
+        maxLimit: policy.maxTransactionLimit,
+        approvalThreshold: policy.approvalThreshold
+      });
+      setPolicyDecision({
+        allowed: polCheck.allowed,
+        requiresApproval: polCheck.requiresApproval,
+        isAutonomous: polCheck.isAutonomous,
+        reason: polCheck.reason,
+        maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+        approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+      });
 
-        const polCheck = await apiService.checkPolicy(matched.price, 1, {
-          maxLimit: policy.maxTransactionLimit,
-          approvalThreshold: policy.approvalThreshold
-        });
-        setPolicyDecision({
-          allowed: polCheck.allowed,
-          requiresApproval: polCheck.requiresApproval,
-          isAutonomous: polCheck.isAutonomous,
-          reason: polCheck.reason,
-          maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
-          approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
-        });
-
-        if (!polCheck.allowed) {
-          setAgentState('policy_blocked');
-          setTimelineSteps(prev => [
-            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-            { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
-            { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
-          ]);
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'merchant',
-              senderLabel: 'Merchant AI Agent',
-              content: `I found ${matched.name} (₹${formatINR(matched.price)}), but this exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Transaction blocked. 0 payment calls made.`,
-              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-            }
-          ]);
-        } else if (polCheck.requiresApproval) {
-          setAgentState('awaiting_human_authorization');
-          setTimelineSteps(prev => [
-            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-            { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(matched.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
-          ]);
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'merchant',
-              senderLabel: 'Merchant AI Agent',
-              content: `I selected ${matched.name} for ₹${formatINR(matched.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
-              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-            }
-          ]);
-        } else {
-          setAgentState('payment_pending');
-          setTimelineSteps(prev => [
-            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-            { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(matched.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
-          ]);
-          setMessages(prev => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}`,
-              sender: 'merchant',
-              senderLabel: 'Merchant AI Agent',
-              content: `⚡ Direct Order Confirmed! Price ₹${formatINR(matched.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
-              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-            }
-          ]);
-          setTimeout(() => {
-            handleExecuteOrderPlacement(singleBasket, true);
-          }, 400);
-        }
-      } else {
-        setAgentState('product_selected');
+      if (!polCheck.allowed) {
+        setAgentState('policy_blocked');
         setTimelineSteps(prev => [
           ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
           { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-          { id: 't4', label: 'Growth Tool', detail: 'Evaluating live store cross-sell opportunities', status: 'active' }
+          { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+          { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
         ]);
-
-        setRecommendation({
-          id: accMatched.id,
-          name: accMatched.name,
-          price: accMatched.price,
-          reason: `Compatible accessory pairing for ${matched.name}`,
-          source: 'Live MCP Store relationship',
-          stock: accMatched.stock
-        });
-
-        setAgentState('awaiting_buyer_approval');
-        setTimelineSteps(prev => [
-          ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
-          { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${accMatched.name} (+₹${formatINR(accMatched.price)})`, status: 'active' }
-        ]);
-
-        setBasketItems([{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }]);
-
         setMessages(prev => [
           ...prev,
           {
-            id: 'msg-2',
+            id: `msg-${Date.now()}`,
             sender: 'merchant',
             senderLabel: 'Merchant AI Agent',
-            content: `I found the ${matched.name} for ₹${formatINR(matched.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matched.stock} available.`,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-          },
-          {
-            id: 'msg-3',
-            sender: 'merchant',
-            senderLabel: 'Merchant AI Agent',
-            content: `A compatible ${accMatched.name} pairs with this product and is available for ₹${formatINR(accMatched.price)}. Would you like to add it?`,
+            content: `I found ${matched.name} (₹${formatINR(matched.price)}), but this exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Transaction blocked. 0 payment calls made.`,
             timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
           }
         ]);
+      } else if (polCheck.requiresApproval) {
+        setAgentState('awaiting_human_authorization');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+          { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(matched.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `I selected ${matched.name} for ₹${formatINR(matched.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      } else {
+        setAgentState('payment_pending');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+          { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(matched.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
+        ]);
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `⚡ Autonomous Policy Approval! Price ₹${formatINR(matched.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        setTimeout(() => {
+          handleExecuteOrderPlacement(singleBasket, true);
+        }, 400);
       }
     } finally {
       setIsProcessing(false);
@@ -1937,7 +1837,7 @@ export default function LiveDemoPage() {
                   </a>
                 </div>
               </div>
-            ) : agentState === 'awaiting_human_authorization' ? (
+            ) : agentState === 'awaiting_human_authorization' || (selectedProduct && policyDecision?.requiresApproval && agentState !== 'idle') ? (
               <div className="bg-amber-50/80 border border-amber-300 p-4 rounded-xl space-y-3 shadow-xs animate-in fade-in duration-200">
                 <div className="flex items-center justify-between pb-2 border-b border-amber-200">
                   <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
@@ -1952,6 +1852,13 @@ export default function LiveDemoPage() {
                 <p className="text-[11px] leading-relaxed text-amber-900">
                   Transaction total of <strong>₹{formatINR(calculatedTotal)}</strong> exceeds your autonomous threshold of <strong>₹{formatINR(policy.approvalThreshold)}</strong>. The agent is paused at the Policy Gate awaiting your authorization to book on the live store website.
                 </p>
+
+                {recommendation && agentState === 'awaiting_buyer_approval' && (
+                  <div className="p-2 rounded bg-indigo-50/80 border border-indigo-200 text-[11px] text-indigo-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span>Growth recommendation pending: <strong>{recommendation.name} (+₹{formatINR(recommendation.price)})</strong>. You can add it in the center column or approve current basket below.</span>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2 pt-1">
                   <button
@@ -1971,12 +1878,7 @@ export default function LiveDemoPage() {
                   </button>
                 </div>
               </div>
-            ) : agentState === 'payment_pending' ? (
-              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-center gap-3 text-indigo-950 text-xs font-bold animate-pulse">
-                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                <span>Executing Agent MCP Booking &amp; Settlement on Live Website...</span>
-              </div>
-            ) : agentState === 'policy_blocked' ? (
+            ) : agentState === 'policy_blocked' || (selectedProduct && policyDecision && !policyDecision.allowed && agentState !== 'idle') ? (
               <div className="p-4 bg-rose-50 border border-rose-300 text-rose-950 rounded-xl text-xs space-y-1.5 shadow-xs">
                 <div className="flex items-center gap-1.5 font-bold text-rose-900">
                   <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -1986,10 +1888,10 @@ export default function LiveDemoPage() {
                   Transaction total of ₹{formatINR(calculatedTotal)} exceeds the merchant maximum limit of ₹{formatINR(policy.maxTransactionLimit)}. 0 Razorpay API and MCP calls were made.
                 </p>
               </div>
-            ) : agentState === 'awaiting_buyer_approval' ? (
-              <div className="p-3.5 rounded-lg border border-indigo-100 bg-indigo-50/50 text-indigo-800 text-xs text-center flex items-center justify-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
-                <span>Awaiting buyer approval on recommendation in chat...</span>
+            ) : agentState === 'payment_pending' ? (
+              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-center gap-3 text-indigo-950 text-xs font-bold animate-pulse">
+                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Executing Autonomous Zero-Touch Order on Store Website...</span>
               </div>
             ) : null}
           </div>
