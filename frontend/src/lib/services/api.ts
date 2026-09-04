@@ -457,7 +457,7 @@ export const apiService = {
 
   async curatePrompt(prompt: string, buyerId: string = 'demo-ai-buyer'): Promise<CuratedPromptResult> {
     try {
-      const res = await fetchJson<CuratedPromptResult>(`http://localhost:8001/agent/curate`, {
+      const res = await fetchJson<CuratedPromptResult>(`${AGENT_BASE}/agent/curate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, buyer_id: buyerId })
