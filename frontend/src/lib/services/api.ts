@@ -187,6 +187,42 @@ export interface CuratedPromptResult {
   structured_request: StructuredBuyerPayload;
 }
 
+export interface RawOrderItem {
+  id?: string;
+  productId?: string;
+  product_id?: number;
+  productName?: string;
+  product_name?: string;
+  unitPrice?: number;
+  unit_price_inr?: number;
+  price?: number;
+  quantity?: number;
+  name?: string;
+  product?: { id?: string; name?: string; price?: number };
+}
+
+export interface RawOrder {
+  id?: string;
+  order_id?: number;
+  customerId?: string;
+  buyer_id?: string;
+  totalAmount?: number;
+  total_inr?: number;
+  subtotal_inr?: number;
+  status?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  createdAt?: string;
+  created_at?: string;
+  policy_reason?: string;
+  customer?: { name?: string; email?: string };
+  items?: RawOrderItem[];
+  transaction?: {
+    status?: string;
+    provider_reference?: string;
+  };
+}
+
 export const apiService = {
   async chatAgent(payload: {
     message?: string;
@@ -290,24 +326,53 @@ export const apiService = {
     return DEFAULT_POLICY;
   },
 
-  async checkPolicy(amountInr: number, merchantId: number = 1): Promise<{ allowed: boolean; reason: string; maxLimit: number }> {
+  async checkPolicy(
+    amountInr: number,
+    merchantId: number = 1,
+    limits?: { maxLimit?: number; approvalThreshold?: number }
+  ): Promise<{
+    allowed: boolean;
+    requiresApproval: boolean;
+    isAutonomous: boolean;
+    reason: string;
+    maxLimit: number;
+    approvalThreshold: number;
+  }> {
     try {
-      const data = await fetchJson<{ allowed: boolean; reason: string; max_transaction_inr: number }>(`${API_BASE}/policies/check`, {
+      const data = await fetchJson<{
+        allowed: boolean;
+        requires_approval?: boolean;
+        is_autonomous?: boolean;
+        reason: string;
+        max_transaction_inr: number;
+        approval_threshold_inr?: number;
+      }>(`${API_BASE}/policies/check`, {
         method: 'POST',
-        body: JSON.stringify({ merchant_id: merchantId, amount_inr: amountInr })
+        body: JSON.stringify({
+          merchant_id: merchantId,
+          amount_inr: amountInr,
+          max_limit: limits?.maxLimit,
+          approval_threshold: limits?.approvalThreshold
+        })
       });
       return {
         allowed: data.allowed,
+        requiresApproval: Boolean(data.requires_approval),
+        isAutonomous: Boolean(data.is_autonomous),
         reason: data.reason,
-        maxLimit: data.max_transaction_inr
+        maxLimit: data.max_transaction_inr,
+        approvalThreshold: data.approval_threshold_inr || 5000
       };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       console.error('Policy check network error:', e);
       return {
         allowed: false,
+        requiresApproval: false,
+        isAutonomous: false,
         reason: `Policy check unavailable (Fail-Closed): ${msg}`,
-        maxLimit: 0
+        maxLimit: 0,
+        approvalThreshold: 0
       };
     }
   },
@@ -411,9 +476,41 @@ export const apiService = {
 
   async getOrders(merchantId: number = 1): Promise<Transaction[]> {
     try {
-      const data = await fetchJson<BackendOrderResponse[]>(`${API_BASE}/orders?merchant_id=${merchantId}&limit=50`);
+      const data = await fetchJson<RawOrder[]>(`${API_BASE}/orders?merchant_id=${merchantId}&limit=50`);
       if (Array.isArray(data) && data.length > 0) {
-        return data.map((order) => {
+        return data.map((order: RawOrder) => {
+          // Check if this is a live Railway store order
+          if (order.id && typeof order.id === 'string' && (order.id.startsWith('cmtl') || order.totalAmount !== undefined)) {
+            const isPaid = order.status === 'PAID';
+            const isPending = order.status === 'PENDING';
+            const rawTotal = Number(order.totalAmount || 0);
+            const totalInr = rawTotal > 1000 ? rawTotal / 100.0 : rawTotal;
+            const items = (order.items || []).map((it: RawOrderItem) => ({
+              productId: it.productId || it.product?.id || 'item',
+              productName: it.product?.name || it.name || 'Store Product',
+              price: it.unitPrice ? (it.unitPrice > 1000 ? it.unitPrice / 100.0 : it.unitPrice) : totalInr,
+              quantity: it.quantity || 1
+            }));
+            const paymentStatus: Transaction['paymentStatus'] = isPaid ? 'Captured' : isPending ? 'Pending' : 'Failed';
+            return {
+              id: order.id,
+              orderId: order.id,
+              buyer: order.customer?.name || order.customer?.email || 'AI Buyer',
+              items,
+              subtotal: totalInr,
+              upsellTotal: 0,
+              totalAmount: totalInr,
+              policyStatus: 'Approved',
+              paymentStatus,
+              timestamp: order.createdAt ? new Date(order.createdAt).toLocaleTimeString('en-US', { hour12: false }) : 'Recent',
+              policyReason: 'Approved: Within merchant limit',
+              razorpayPaymentId: order.razorpayPaymentId,
+              razorpayOrderId: order.razorpayOrderId,
+              razorpayApiCalls: isPaid ? 2 : 1
+            };
+          }
+
+          // Fallback to local FastAPI backend order shape
           const isBlocked = order.status === 'blocked';
           const txn = order.transaction;
           let paymentStatus: Transaction['paymentStatus'] = 'Not Attempted';
@@ -427,21 +524,21 @@ export const apiService = {
           }
 
           return {
-            id: `ORD-${order.order_id}`,
-            orderId: order.order_id,
+            id: `ORD-${order.order_id || 0}`,
+            orderId: order.order_id || 0,
             buyer: order.buyer_id || 'AI Buyer',
-            items: (order.items || []).map((oi) => ({
-              productId: String(oi.product_id),
-              productName: oi.product_name,
-              price: Number(oi.unit_price_inr),
-              quantity: oi.quantity
+            items: (order.items || []).map((oi: RawOrderItem) => ({
+              productId: String(oi.product_id || oi.productId || 'item'),
+              productName: oi.product_name || oi.productName || 'Product',
+              price: Number(oi.unit_price_inr || oi.unitPrice || 0),
+              quantity: oi.quantity || 1
             })),
-            subtotal: Number(order.subtotal_inr),
+            subtotal: Number(order.subtotal_inr || 0),
             upsellTotal: 0,
-            totalAmount: Number(order.total_inr),
+            totalAmount: Number(order.total_inr || 0),
             policyStatus: isBlocked ? 'Blocked' : 'Approved',
             paymentStatus,
-            timestamp: new Date(order.created_at).toLocaleTimeString('en-US', { hour12: false }),
+            timestamp: order.created_at ? new Date(order.created_at).toLocaleTimeString('en-US', { hour12: false }) : 'Recent',
             policyReason: order.policy_reason || (isBlocked ? 'Blocked by limit' : 'Approved'),
             razorpayPaymentId: txn?.provider_reference || undefined,
             razorpayOrderId: txn?.provider_reference || undefined,
@@ -450,7 +547,7 @@ export const apiService = {
         });
       }
     } catch (e) {
-      console.warn('Could not fetch orders from backend, using default mock transactions:', e);
+      console.warn('Could not fetch orders from backend, maintaining current transactions:', e);
     }
     return INITIAL_TRANSACTIONS;
   },
@@ -465,19 +562,35 @@ export const apiService = {
       return res;
     } catch (e) {
       console.warn('Agent curation endpoint unavailable, falling back to local extraction:', e);
+      const kMatch = prompt.match(/(?:under|below|within|upto|budget|rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
+      const numMatch = prompt.match(/(?:under|below|within|upto|budget|rs\.?|₹)\s*([\d,]+)/i) || prompt.match(/₹\s*([\d,]+)/) || prompt.match(/\b(\d{3,7})\b/);
+      let budget = 50000;
+      if (kMatch) budget = parseFloat(kMatch[1]) * 1000;
+      else if (numMatch) budget = parseInt(numMatch[1].replace(/,/g, ''), 10) || 50000;
+
+      const cleanItem = prompt
+        .replace(/(?:i\s+need|i\s+want|looking\s+for|please\s+find|find|buy|get|a|an|the)\b/gi, ' ')
+        .replace(/(?:under|below|within|upto|budget|for|rs\.?|₹)\s*[\d,]+(?:\s*k)?/gi, ' ')
+        .replace(/[^\w\s-]/g, ' ')
+        .trim();
+      const sq = cleanItem || 'product';
+
       return {
-        search_query: 'product',
-        category: 'General',
-        budget_inr: 70000,
-        use_case: 'work',
-        priority_feature: 'productivity',
-        intent: 'purchase_product',
+        search_query: sq,
+        category: sq,
+        budget_inr: budget,
+        use_case: /gaming/i.test(prompt) ? 'gaming' : /study/i.test(prompt) ? 'study' : 'work',
+        priority_feature: /battery/i.test(prompt) ? 'battery' : 'productivity',
+        intent: `purchase_${sq.toLowerCase().replace(/\s+/g, '_')}`,
         structured_request: {
           buyer_id: buyerId,
-          intent: 'purchase_product',
-          category: 'product',
-          budget_inr: 70000,
-          preferences: { use_case: 'work', priority: 'productivity' }
+          intent: `purchase_${sq.toLowerCase().replace(/\s+/g, '_')}`,
+          category: sq,
+          budget_inr: budget,
+          preferences: {
+            use_case: /gaming/i.test(prompt) ? 'gaming' : 'work',
+            priority: 'standard'
+          }
         }
       };
     }

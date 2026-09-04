@@ -29,7 +29,7 @@ export interface OrderItem {
 
 export interface Transaction {
   id: string;
-  orderId?: number;
+  orderId?: number | string;
   buyer: string;
   items: OrderItem[];
   subtotal: number;
@@ -47,11 +47,11 @@ export interface Transaction {
 export interface AuditEvent {
   id: string;
   timestamp: string;
-  actor: 'AI Buyer' | 'Merchant Agent' | 'Catalog Tool' | 'Growth Tool' | 'Policy Tool' | 'Payment Tool' | 'Buyer';
+  actor: 'AI Buyer' | 'Merchant Agent' | 'Catalog Tool' | 'Growth Tool' | 'Policy Tool' | 'Payment Tool' | 'Buyer' | 'Policy Engine' | 'Payment Gateway' | 'System';
   action: string;
   reason: string;
   amount?: number;
-  result: 'Received' | 'Suggested' | 'Approved' | 'Allowed' | 'Created' | 'Successful' | 'Blocked';
+  result: 'Received' | 'Suggested' | 'Approved' | 'Allowed' | 'Created' | 'Successful' | 'Blocked' | 'Failed';
   category: 'Agent' | 'Policy' | 'Payment' | 'Growth' | 'Blocked';
 }
 

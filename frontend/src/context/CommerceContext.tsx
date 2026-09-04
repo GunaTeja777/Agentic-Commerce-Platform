@@ -67,6 +67,10 @@ interface CommerceContextType {
 
 const CommerceContext = createContext<CommerceContextType | undefined>(undefined);
 
+const TX_STORAGE_KEY = 'agentic_commerce_transactions';
+const AUDIT_STORAGE_KEY = 'agentic_commerce_audit_events';
+const POLICY_STORAGE_KEY = 'agentic_commerce_policy';
+
 export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS);
   const [policy, setPolicy] = useState<MerchantPolicy>(DEFAULT_POLICY);
@@ -76,6 +80,37 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
   const [growthOpportunities, setGrowthOpportunities] = useState<GrowthOpportunity[]>(INITIAL_GROWTH_OPPORTUNITIES);
   const [isFailureModalOpen, setIsFailureModalOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // 1. Initialize from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedTx = localStorage.getItem(TX_STORAGE_KEY);
+        if (savedTx) {
+          const parsed = JSON.parse(savedTx);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTransactions(parsed);
+          }
+        }
+        const savedAudits = localStorage.getItem(AUDIT_STORAGE_KEY);
+        if (savedAudits) {
+          const parsed = JSON.parse(savedAudits);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setAuditEvents(parsed);
+          }
+        }
+        const savedPolicy = localStorage.getItem(POLICY_STORAGE_KEY);
+        if (savedPolicy) {
+          const parsed = JSON.parse(savedPolicy);
+          if (parsed && typeof parsed === 'object') {
+            setPolicy((prev) => ({ ...prev, ...parsed }));
+          }
+        }
+      } catch (err) {
+        console.warn('Error reading from localStorage:', err);
+      }
+    }
+  }, []);
 
   const refreshCommerceData = useCallback(async () => {
     try {
@@ -90,13 +125,52 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
         setProducts(backendProducts.value);
       }
       if (backendPolicy.status === 'fulfilled') {
-        setPolicy(backendPolicy.value);
+        setPolicy((prev) => {
+          let saved: Partial<MerchantPolicy> | null = null;
+          if (typeof window !== 'undefined') {
+            try {
+              const raw = localStorage.getItem(POLICY_STORAGE_KEY);
+              if (raw) saved = JSON.parse(raw);
+            } catch {}
+          }
+          return {
+            ...backendPolicy.value,
+            ...(saved || prev)
+          };
+        });
       }
       if (backendOrders.status === 'fulfilled' && backendOrders.value.length > 0) {
-        setTransactions(backendOrders.value);
+        setTransactions((prev) => {
+          // Preserve live user-created orders that aren't in initial mock set
+          const userOrders = prev.filter(p => p.id && !INITIAL_TRANSACTIONS.some(it => it.id === p.id));
+          const existingIds = new Set(backendOrders.value.map(o => o.id));
+          const toAdd = userOrders.filter(p => !existingIds.has(p.id));
+          const merged = [...toAdd, ...backendOrders.value];
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(TX_STORAGE_KEY, JSON.stringify(merged));
+            } catch (e) {
+              console.warn('Could not save merged transactions:', e);
+            }
+          }
+          return merged;
+        });
       }
       if (backendAudits.status === 'fulfilled' && backendAudits.value.length > 0) {
-        setAuditEvents(backendAudits.value);
+        setAuditEvents((prev) => {
+          const userAudits = prev.filter(a => a.id && !INITIAL_AUDIT_EVENTS.some(ia => ia.id === a.id));
+          const existingIds = new Set(backendAudits.value.map(a => a.id));
+          const toAdd = userAudits.filter(a => !existingIds.has(a.id));
+          const merged = [...toAdd, ...backendAudits.value];
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(merged));
+            } catch (e) {
+              console.warn('Could not save merged audits:', e);
+            }
+          }
+          return merged;
+        });
       }
     } catch (e) {
       console.warn('Backend sync failed, maintaining local state:', e);
@@ -108,15 +182,47 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, [refreshCommerceData]);
 
   const updatePolicy = (newPolicy: Partial<MerchantPolicy>) => {
-    setPolicy((prev) => ({ ...prev, ...newPolicy }));
+    setPolicy((prev) => {
+      const updated = { ...prev, ...newPolicy };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(POLICY_STORAGE_KEY, JSON.stringify(updated));
+        } catch (e) {
+          console.warn('Could not save policy:', e);
+        }
+      }
+      return updated;
+    });
   };
 
   const addTransaction = (tx: Transaction) => {
-    setTransactions((prev) => [tx, ...prev]);
+    setTransactions((prev) => {
+      const filtered = prev.filter(t => t.id !== tx.id);
+      const updated = [tx, ...filtered];
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(TX_STORAGE_KEY, JSON.stringify(updated));
+        } catch (e) {
+          console.warn('Could not save transactions:', e);
+        }
+      }
+      return updated;
+    });
   };
 
   const addAuditEvent = (evt: AuditEvent) => {
-    setAuditEvents((prev) => [evt, ...prev]);
+    setAuditEvents((prev) => {
+      const filtered = prev.filter(e => e.id !== evt.id);
+      const updated = [evt, ...filtered];
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
+        } catch (e) {
+          console.warn('Could not save audit events:', e);
+        }
+      }
+      return updated;
+    });
   };
 
   const toggleGrowthOpportunity = (id: string) => {

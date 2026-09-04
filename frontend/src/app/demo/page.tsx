@@ -3,7 +3,7 @@
 import React, { useState, useRef } from 'react';
 import { useCommerce } from '@/context/CommerceContext';
 import { apiService } from '@/lib/services/api';
-import { Product } from '@/lib/types';
+import { Product, Transaction, AuditEvent } from '@/lib/types';
 import {
   Bot,
   Cpu,
@@ -18,7 +18,8 @@ import {
   RotateCcw,
   Check,
   Clock,
-  Send
+  Send,
+  UserCheck
 } from 'lucide-react';
 
 import { formatINR } from '@/lib/format';
@@ -33,6 +34,7 @@ type AgentStatus =
   | 'building_basket'
   | 'checking_policy'
   | 'policy_blocked'
+  | 'awaiting_human_authorization'
   | 'ready_for_payment'
   | 'payment_pending'
   | 'payment_verifying'
@@ -61,13 +63,15 @@ interface StructuredBuyerRequest {
 
 function parsePromptDetails(prompt: string) {
   let budget = 70000;
-  // Match k shorthand e.g. 60k, 50k, 70k
-  const kMatch = prompt.match(/(?:under|below|budget|max|limit|rs\.?|₹)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
-  // Match full number e.g. 60,000 or ₹60,000 or 60000
-  const numMatch = prompt.match(/(?:under|below|budget|max|limit|rs\.?|₹)\s*([\d,]+)/i) || prompt.match(/₹\s*([\d,]+)/) || prompt.match(/\b(\d{4,7})\b/);
+  // Match k shorthand e.g. 60k, 50k, 70k, 1k
+  const kMatch = prompt.match(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
+  // Match numbers with prefix or 3-7 digit number e.g. within 1000, 60,000, ₹1000
+  const numMatch = prompt.match(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)\s*([\d,]+)/i) ||
+                   prompt.match(/(?:₹|rs\.?|inr)\s*([\d,]+)/i) ||
+                   prompt.match(/\b(\d{3,7})\b/);
   
   if (kMatch) {
-    budget = parseFloat(kMatch[1]) * 1000;
+    budget = Math.round(parseFloat(kMatch[1]) * 1000);
   } else if (numMatch) {
     const cleanNum = parseInt(numMatch[1].replace(/,/g, ''), 10);
     if (!isNaN(cleanNum) && cleanNum > 0) {
@@ -75,9 +79,22 @@ function parsePromptDetails(prompt: string) {
     }
   }
 
-  let category = 'laptop';
-  let categoryLabel = 'Laptops';
-  if (/mic|microphone/i.test(prompt)) {
+  // Extract clean item query
+  const cleanedItem = prompt
+    .replace(/(?:i\s+need|i\s+want|looking\s+for|please\s+find|find\s+me|get\s+me|buy|order\s+this|order|purchase|checkout|a|an|the)\b/gi, ' ')
+    .replace(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)\s*[\d,]+(?:\s*k)?/gi, ' ')
+    .replace(/\b\d+(?:\.\d+)?\s*k\b/gi, ' ')
+    .replace(/[^\w\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let category = cleanedItem || 'laptop';
+  let categoryLabel = cleanedItem || 'Laptops';
+
+  if (/mouse\s*pad|mousepad|strikepad|desk\s*pad|mat/i.test(prompt)) {
+    category = cleanedItem || 'Mouse Pad';
+    categoryLabel = 'Gaming Accessories';
+  } else if (/mic|microphone/i.test(prompt)) {
     category = 'mic';
     categoryLabel = 'Audio & Microphones';
   } else if (/headphone|earphone|headset|audio|speaker/i.test(prompt)) {
@@ -101,13 +118,9 @@ function parsePromptDetails(prompt: string) {
   } else if (/bag|backpack/i.test(prompt)) {
     category = 'bag';
     categoryLabel = 'Accessories';
-  } else {
-    // Dynamic fallback to first non-stopword
-    const cleanWords = prompt.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => !['i', 'need', 'a', 'an', 'the', 'for', 'under', 'below', 'with', 'want', 'to', 'buy', 'find', 'get', 'in', 'rs', 'inr', 'rupees'].includes(w));
-    if (cleanWords.length > 0) {
-      category = cleanWords[0];
-      categoryLabel = category.charAt(0).toUpperCase() + category.slice(1);
-    }
+  } else if (/organizer|cable|stand|dock|hub|holder|case|sleeve/i.test(prompt)) {
+    category = cleanedItem || 'Cable Organizer';
+    categoryLabel = 'Accessories';
   }
 
   let useCase = 'work';
@@ -116,18 +129,19 @@ function parsePromptDetails(prompt: string) {
   else if (/creator|video|stream|audio|music|edit/i.test(prompt)) useCase = 'creative';
   else if (/travel|portable/i.test(prompt)) useCase = 'travel';
 
-  let priority = 'productivity';
+  let priority = 'standard';
   if (/battery/i.test(prompt)) priority = 'Good battery';
   else if (/clarity|clear|sound|voice/i.test(prompt)) priority = 'High clarity';
   else if (/noise\s*cancellation|anc/i.test(prompt)) priority = 'Noise cancellation';
   else if (/wireless|bluetooth/i.test(prompt)) priority = 'Wireless';
   else if (/lightweight|portable/i.test(prompt)) priority = 'Lightweight';
+  else if (/budget|cheap|affordable/i.test(prompt)) priority = 'Budget-friendly';
 
   return { budget, category, categoryLabel, useCase, priority };
 }
 
 export default function LiveDemoPage() {
-  const { products, policy, refreshCommerceData, auditEvents } = useCommerce();
+  const { products, policy, refreshCommerceData, auditEvents, addTransaction, addAuditEvent } = useCommerce();
 
   // Demo flow states
   const [agentState, setAgentState] = useState<AgentStatus>('idle');
@@ -149,7 +163,14 @@ export default function LiveDemoPage() {
   // Basket & Decision states
   const [buyerDecision, setBuyerDecision] = useState<'pending' | 'accepted' | 'skipped' | null>(null);
   const [basketItems, setBasketItems] = useState<Array<{ name: string; price: number; isUpsell?: boolean; id?: string }>>([]);
-  const [policyDecision, setPolicyDecision] = useState<{ allowed: boolean; reason: string; maxLimit: number } | null>(null);
+  const [policyDecision, setPolicyDecision] = useState<{
+    allowed: boolean;
+    requiresApproval?: boolean;
+    isAutonomous?: boolean;
+    reason: string;
+    maxLimit: number;
+    approvalThreshold?: number;
+  } | null>(null);
   
   // Order & Payment states
   const [currentOrderId, setCurrentOrderId] = useState<number | null>(null);
@@ -162,6 +183,11 @@ export default function LiveDemoPage() {
   const [timelineSteps, setTimelineSteps] = useState<Array<{ id: string; label: string; detail?: string; status: 'pending' | 'active' | 'done' | 'blocked' | 'failed' }>>([]);
 
   const auditEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   // Dynamic live parsed prompt intent
   const liveParsed = parsePromptDetails(buyerInput);
@@ -179,7 +205,7 @@ export default function LiveDemoPage() {
         if (curated && curated.structured_request) {
           setStructuredRequest({
             buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
-            intent: curated.structured_request.intent || `purchase_${curated.search_query}`,
+            intent: curated.structured_request.intent || `purchase_${(curated.search_query || curated.category || 'product').toLowerCase().replace(/\s+/g, '_')}`,
             category: curated.search_query || curated.category,
             budget_inr: Number(curated.budget_inr) || liveParsed.budget,
             preferences: {
@@ -236,6 +262,74 @@ export default function LiveDemoPage() {
     specifications: {}
   };
 
+  // Restore demo session from localStorage on mount
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('agentic_commerce_demo_session');
+        if (saved) {
+          const s = JSON.parse(saved);
+          if (s.agentState && s.agentState !== 'idle') setAgentState(s.agentState);
+          if (s.buyerInput) setBuyerInput(s.buyerInput);
+          if (Array.isArray(s.messages) && s.messages.length > 0) setMessages(s.messages);
+          if (Array.isArray(s.timelineSteps) && s.timelineSteps.length > 0) setTimelineSteps(s.timelineSteps);
+          if (s.selectedProduct) setSelectedProduct(s.selectedProduct);
+          if (s.recommendation) setRecommendation(s.recommendation);
+          if (s.buyerDecision) setBuyerDecision(s.buyerDecision);
+          if (Array.isArray(s.basketItems) && s.basketItems.length > 0) setBasketItems(s.basketItems);
+          if (s.policyDecision) setPolicyDecision(s.policyDecision);
+          if (s.currentBookingId) setCurrentBookingId(s.currentBookingId);
+          if (s.capturedPaymentId) setCapturedPaymentId(s.capturedPaymentId);
+          if (s.capturedRazorpayOrderId) setCapturedRazorpayOrderId(s.capturedRazorpayOrderId);
+          if (s.structuredRequest) setStructuredRequest(s.structuredRequest);
+        }
+      } catch (e) {
+        console.warn('Could not restore demo session:', e);
+      }
+    }
+  }, []);
+
+  // Persist demo session to localStorage when active
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (agentState !== 'idle') {
+        try {
+          localStorage.setItem('agentic_commerce_demo_session', JSON.stringify({
+            agentState,
+            buyerInput,
+            messages,
+            timelineSteps,
+            selectedProduct,
+            recommendation,
+            buyerDecision,
+            basketItems,
+            policyDecision,
+            currentBookingId,
+            capturedPaymentId,
+            capturedRazorpayOrderId,
+            structuredRequest
+          }));
+        } catch (e) {
+          console.warn('Could not persist demo session:', e);
+        }
+      }
+    }
+  }, [
+    agentState,
+    buyerInput,
+    messages,
+    timelineSteps,
+    selectedProduct,
+    recommendation,
+    buyerDecision,
+    basketItems,
+    policyDecision,
+    currentBookingId,
+    capturedPaymentId,
+    capturedRazorpayOrderId,
+    structuredRequest
+  ]);
+
   // Reset Demo State
   const handleResetDemo = (keepInput: boolean = false) => {
     setAgentState('idle');
@@ -250,10 +344,15 @@ export default function LiveDemoPage() {
     setBasketItems([]);
     setPolicyDecision(null);
     setCurrentOrderId(null);
+    setCurrentBookingId(null);
+    setCapturedRazorpayOrderId(null);
     setCapturedPaymentId(null);
     setIsProcessing(false);
     setErrorMessage(null);
     setTimelineSteps([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('agentic_commerce_demo_session');
+    }
   };
 
   // Run the primary demo flow dynamically based on user prompt & LangGraph Agent API
@@ -318,7 +417,8 @@ export default function LiveDemoPage() {
       const agentRes = await apiService.chatAgent({
         message: query,
         merchant_id: 1,
-        buyer_id: 'demo-ai-buyer'
+        buyer_id: 'demo-ai-buyer',
+        structured_request: structured
       });
 
       if (agentRes.selected_product) {
@@ -336,8 +436,100 @@ export default function LiveDemoPage() {
         };
         setSelectedProduct(prod);
 
-        // 3. Growth recommendation from LangGraph Growth Tool
-        if (agentRes.recommendations && agentRes.recommendations.length > 0) {
+        const isDirectOrder = /order\s+this|order\b|buy\b|purchase\b|checkout\b/i.test(query);
+
+        if (isDirectOrder) {
+          // DIRECT ORDER: Order this product directly based on dynamic policy threshold
+          const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
+          setBasketItems(singleBasket);
+
+          if (agentRes.recommendations && agentRes.recommendations.length > 0) {
+            const rec = agentRes.recommendations[0];
+            setRecommendation({
+              id: String(rec.id),
+              name: rec.name || 'Recommended Accessory',
+              price: rec.price_inr || 0,
+              reason: rec.reason || 'Frequently bought together with this product',
+              source: 'Merchant catalog relationship',
+              stock: rec.stock || 20
+            });
+          }
+
+          try {
+            const polCheck = await apiService.checkPolicy(prod.price, 1, {
+              maxLimit: policy.maxTransactionLimit,
+              approvalThreshold: policy.approvalThreshold
+            });
+            setPolicyDecision({
+              allowed: polCheck.allowed,
+              requiresApproval: polCheck.requiresApproval,
+              isAutonomous: polCheck.isAutonomous,
+              reason: polCheck.reason,
+              maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+              approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+            });
+
+            if (!polCheck.allowed) {
+              setAgentState('policy_blocked');
+              setTimelineSteps(prev => [
+                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+                { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+                { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
+              ]);
+              setMessages(prev => [
+                ...prev,
+                {
+                  id: `msg-${Date.now()}`,
+                  sender: 'merchant',
+                  senderLabel: 'Merchant AI Agent (LangGraph)',
+                  content: `I found ${prod.name} (₹${formatINR(prod.price)}), but this transaction exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Blocked by Policy Gate. 0 payment calls made.`,
+                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                }
+              ]);
+            } else if (polCheck.requiresApproval) {
+              setAgentState('awaiting_human_authorization');
+              setTimelineSteps(prev => [
+                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+                { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+              ]);
+              setMessages(prev => [
+                ...prev,
+                {
+                  id: `msg-${Date.now()}`,
+                  sender: 'merchant',
+                  senderLabel: 'Merchant AI Agent (LangGraph)',
+                  content: `I selected ${prod.name} for ₹${formatINR(prod.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                }
+              ]);
+            } else {
+              setAgentState('payment_pending');
+              setTimelineSteps(prev => [
+                ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+                { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+                { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(prod.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
+              ]);
+              setMessages(prev => [
+                ...prev,
+                {
+                  id: `msg-${Date.now()}`,
+                  sender: 'merchant',
+                  senderLabel: 'Merchant AI Agent (LangGraph)',
+                  content: `⚡ Direct Order Confirmed! Price ₹${formatINR(prod.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+                  timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+                }
+              ]);
+              setTimeout(() => {
+                handleExecuteOrderPlacement(singleBasket, true);
+              }, 400);
+            }
+          } catch (polErr) {
+            console.warn('Direct order policy check notice:', polErr);
+          }
+        } else if (agentRes.recommendations && agentRes.recommendations.length > 0) {
+          // 3. Growth recommendation from LangGraph Growth Tool
           const rec = agentRes.recommendations[0];
           const recName = rec.name || 'Recommended Accessory';
           const recPrice = rec.price_inr || 0;
@@ -357,26 +549,66 @@ export default function LiveDemoPage() {
             { id: 't4', label: 'Growth Tool', detail: 'Found data-backed upsell opportunity', status: 'done' },
             { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${recName} (+₹${formatINR(recPrice)})`, status: 'active' }
           ]);
+          setBasketItems([{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }]);
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (LangGraph)',
+              content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
         } else {
           setAgentState('building_basket');
           setTimelineSteps(prev => [
             ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
             { id: 't3', label: 'Product selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' }
           ]);
-        }
 
-        setBasketItems([{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }]);
+          const singleBasket = [{ name: prod.name, price: prod.price, isUpsell: false, id: prod.id }];
+          setBasketItems(singleBasket);
 
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}`,
-            sender: 'merchant',
-            senderLabel: 'Merchant AI Agent (LangGraph)',
-            content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          try {
+            const polCheck = await apiService.checkPolicy(prod.price, 1, {
+              maxLimit: policy.maxTransactionLimit,
+              approvalThreshold: policy.approvalThreshold
+            });
+            setPolicyDecision({
+              allowed: polCheck.allowed,
+              requiresApproval: polCheck.requiresApproval,
+              isAutonomous: polCheck.isAutonomous,
+              reason: polCheck.reason,
+              maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+              approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+            });
+
+            if (!polCheck.allowed) {
+              setAgentState('policy_blocked');
+            } else if (polCheck.requiresApproval) {
+              setAgentState('awaiting_human_authorization');
+            } else {
+              setTimeout(() => {
+                handleExecuteOrderPlacement(singleBasket, true);
+              }, 400);
+            }
+          } catch (polErr) {
+            console.warn('Single item policy check:', polErr);
           }
-        ]);
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (LangGraph)',
+              content: agentRes.message || `I found the ${prod.name} for ₹${formatINR(prod.price)}.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        }
       } else {
         // No product matched or blocked by search constraints
         setAgentState(agentRes.status === 'blocked' ? 'policy_blocked' : 'failed');
@@ -400,57 +632,320 @@ export default function LiveDemoPage() {
       console.error('Agent query notice:', e);
       // Dynamically query live Railway store products
       const liveList = await apiService.getProducts();
-      const matched = liveList.find(p => p.name.toLowerCase().includes(parsed.category.toLowerCase())) || liveList[0];
-      const accMatched = liveList.find(p => p.category === 'Accessories' && p.id !== matched.id) || liveList[1];
 
-      setSelectedProduct(matched);
-      setAgentState('product_selected');
-      setTimelineSteps(prev => [
-        ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-        { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-        { id: 't4', label: 'Growth Tool', detail: 'Evaluating live store cross-sell opportunities', status: 'active' }
-      ]);
-
-      setRecommendation({
-        id: accMatched.id,
-        name: accMatched.name,
-        price: accMatched.price,
-        reason: `Compatible accessory pairing for ${matched.name}`,
-        source: 'Live MCP Store relationship',
-        stock: accMatched.stock
+      // Score candidates by query token matches
+      const qTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2 && !['want', 'need', 'buy', 'for', 'the', 'with', 'under', 'below', 'within', 'order', 'this'].includes(t));
+      const sortedLive = [...liveList].sort((a, b) => {
+        let aScore = 0;
+        let bScore = 0;
+        const aText = `${a.name} ${a.category} ${a.description || ''}`.toLowerCase();
+        const bText = `${b.name} ${b.category} ${b.description || ''}`.toLowerCase();
+        for (const tok of qTokens) {
+          if (a.name.toLowerCase().includes(tok)) aScore += 20;
+          else if (aText.includes(tok)) aScore += 5;
+          if (b.name.toLowerCase().includes(tok)) bScore += 20;
+          else if (bText.includes(tok)) bScore += 5;
+        }
+        return bScore - aScore;
       });
 
-      setAgentState('awaiting_buyer_approval');
-      setTimelineSteps(prev => [
-        ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
-        { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${accMatched.name} (+₹${formatINR(accMatched.price)})`, status: 'active' }
-      ]);
+      const matched = sortedLive[0] || liveList[0];
+      const accMatched = liveList.find(p => (p.category === 'Accessories' || p.category === 'Peripherals' || p.category === 'Office') && p.id !== matched.id && p.price <= 3000) ||
+                         liveList.find(p => p.category === 'Accessories' && p.id !== matched.id) ||
+                         liveList[1];
 
-      setBasketItems([{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }]);
+      setSelectedProduct(matched);
 
-      setMessages(prev => [
-        ...prev,
-        {
-          id: 'msg-2',
-          sender: 'merchant',
-          senderLabel: 'Merchant AI Agent',
-          content: `I found the ${matched.name} for ₹${formatINR(matched.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matched.stock} available.`,
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        },
-        {
-          id: 'msg-3',
-          sender: 'merchant',
-          senderLabel: 'Merchant AI Agent',
-          content: `A compatible ${accMatched.name} pairs with this product and is available for ₹${formatINR(accMatched.price)}. Would you like to add it?`,
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      const isDirectOrder = /order\s+this|order\b|buy\b|purchase\b|checkout\b/i.test(query);
+
+      if (isDirectOrder) {
+        const singleBasket = [{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }];
+        setBasketItems(singleBasket);
+        setRecommendation({
+          id: accMatched.id,
+          name: accMatched.name,
+          price: accMatched.price,
+          reason: `Compatible accessory pairing for ${matched.name}`,
+          source: 'Live MCP Store relationship',
+          stock: accMatched.stock
+        });
+
+        const polCheck = await apiService.checkPolicy(matched.price, 1, {
+          maxLimit: policy.maxTransactionLimit,
+          approvalThreshold: policy.approvalThreshold
+        });
+        setPolicyDecision({
+          allowed: polCheck.allowed,
+          requiresApproval: polCheck.requiresApproval,
+          isAutonomous: polCheck.isAutonomous,
+          reason: polCheck.reason,
+          maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+          approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+        });
+
+        if (!polCheck.allowed) {
+          setAgentState('policy_blocked');
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+            { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+            { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent',
+              content: `I found ${matched.name} (₹${formatINR(matched.price)}), but this exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. Transaction blocked. 0 payment calls made.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        } else if (polCheck.requiresApproval) {
+          setAgentState('awaiting_human_authorization');
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(matched.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent',
+              content: `I selected ${matched.name} for ₹${formatINR(matched.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        } else {
+          setAgentState('payment_pending');
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+            { id: 't_auto', label: 'Autonomous Policy Approval', detail: `₹${formatINR(matched.price)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`, status: 'done' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent',
+              content: `⚡ Direct Order Confirmed! Price ₹${formatINR(matched.price)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+          setTimeout(() => {
+            handleExecuteOrderPlacement(singleBasket, true);
+          }, 400);
         }
-      ]);
+      } else {
+        setAgentState('product_selected');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+          { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+          { id: 't4', label: 'Growth Tool', detail: 'Evaluating live store cross-sell opportunities', status: 'active' }
+        ]);
+
+        setRecommendation({
+          id: accMatched.id,
+          name: accMatched.name,
+          price: accMatched.price,
+          reason: `Compatible accessory pairing for ${matched.name}`,
+          source: 'Live MCP Store relationship',
+          stock: accMatched.stock
+        });
+
+        setAgentState('awaiting_buyer_approval');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't4' ? { ...s, status: 'done' as const } : s),
+          { id: 't5', label: 'Waiting for buyer approval', detail: `Proposed ${accMatched.name} (+₹${formatINR(accMatched.price)})`, status: 'active' }
+        ]);
+
+        setBasketItems([{ name: matched.name, price: matched.price, isUpsell: false, id: matched.id }]);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: 'msg-2',
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `I found the ${matched.name} for ₹${formatINR(matched.price)}. It matches your ${parsed.useCase} requirement (Budget: ₹${formatINR(parsed.budget)}). Stock: ${matched.stock} available.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          },
+          {
+            id: 'msg-3',
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `A compatible ${accMatched.name} pairs with this product and is available for ₹${formatINR(accMatched.price)}. Would you like to add it?`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Buyer Decision Action (Accept / Skip Recommendation)
+  // Reject/Cancel transaction when human authorization is required
+  const handleRejectTransaction = () => {
+    setAgentState('failed');
+    setErrorMessage('Transaction authorization was declined by the user. No order was placed.');
+    setTimelineSteps(prev => [
+      ...prev,
+      { id: 't_declined', label: 'Human Authorization Declined', detail: 'User rejected transaction approval', status: 'blocked' }
+    ]);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `msg-${Date.now()}`,
+        sender: 'buyer',
+        senderLabel: 'AI Buyer',
+        content: 'I decided not to authorize this purchase. Transaction cancelled.',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+      }
+    ]);
+  };
+
+  // Place order on live Railway store website via MCP server (autonomous or human-authorized)
+  const handleExecuteOrderPlacement = async (
+    customBasket?: Array<{ name: string; price: number; isUpsell?: boolean; id?: string }>,
+    isAutonomousOrder: boolean = false
+  ) => {
+    setIsProcessing(true);
+    setErrorMessage(null);
+
+    const activeBasket = customBasket && customBasket.length > 0 ? customBasket : basketItems;
+    const baseProd = selectedProduct || laptopItem;
+    const totalAmount = activeBasket.length > 0
+      ? activeBasket.reduce((sum, item) => sum + item.price, 0)
+      : baseProd.price;
+
+    setAgentState('payment_pending');
+    setTimelineSteps(prev => [
+      ...prev.filter(s => s.id !== 't_mcp_exec'),
+      {
+        id: 't_mcp_exec',
+        label: isAutonomousOrder ? 'Autonomous MCP Booking' : 'Authorized MCP Booking',
+        detail: `Executing MCP tool create_order on Railway store for ₹${formatINR(totalAmount)}`,
+        status: 'active'
+      }
+    ]);
+
+    try {
+      // 1. Buy on live Railway MCP Store (create_order)
+      const orderItems = activeBasket.map(it => ({
+        productId: String(it.id || '1001'),
+        quantity: 1,
+        name: it.name
+      }));
+
+      const railwayOrder = await apiService.createRailwayOrder('buyer@demo.com', 'Demo Buyer', orderItems);
+      const bookingId = railwayOrder?.orderId || railwayOrder?.id || `ORD-${Date.now().toString().slice(-6)}`;
+      const rzpOrderId = railwayOrder?.razorpayOrderId;
+
+      // 2. Also record in local backend for PostgreSQL audit trail
+      try {
+        const backendOrderItems = activeBasket.map(it => ({
+          product_id: Number(it.id) || 1001,
+          quantity: 1
+        }));
+        const beOrder = await apiService.createOrder(1, 'demo-ai-buyer', backendOrderItems);
+        setCurrentOrderId(beOrder.order_id);
+      } catch (beErr) {
+        console.warn('Backend order recording notice:', beErr);
+      }
+
+      setCurrentBookingId(bookingId);
+      setCapturedRazorpayOrderId(rzpOrderId || null);
+
+      // 3. Autonomous Agent Checkout & Settlement on Railway Store via MCP Server
+      const agentPaymentId = `pay_agent_mcp_${Math.random().toString(36).substring(2, 10)}`;
+
+      if (bookingId && typeof bookingId === 'string' && (bookingId.startsWith('cmt') || bookingId.length > 8)) {
+        await apiService.updateRailwayOrderPaid(bookingId, agentPaymentId);
+      }
+
+      setAgentState('completed');
+      setCapturedPaymentId(agentPaymentId);
+      setCapturedRazorpayOrderId(rzpOrderId || null);
+
+      setTimelineSteps(prev => [
+        ...prev.map(s => s.id === 't_mcp_exec' ? { ...s, status: 'done' as const } : s),
+        { id: 't_mcp', label: 'Railway MCP Store', detail: `Created live order ${bookingId}`, status: 'done' },
+        { id: 't_paid', label: isAutonomousOrder ? 'Autonomous Settlement' : 'Authorized Settlement', detail: `Booking & settlement (${agentPaymentId})`, status: 'done' },
+        { id: 't_cap', label: 'Railway Store Confirmed', detail: `Order ${bookingId} marked PAID in live DB`, status: 'done' }
+      ]);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}`,
+          sender: 'merchant',
+          senderLabel: 'Merchant AI Agent',
+          content: `${isAutonomousOrder ? '⚡ Autonomous Zero-Touch Checkout' : '✓ User-Authorized Checkout'} Completed! Order ${bookingId} was booked on the live Railway platform using MCP tools. Razorpay Order: ${rzpOrderId || 'N/A'}, Settlement: ${agentPaymentId}.`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        },
+        {
+          id: `msg-${Date.now() + 1}`,
+          sender: 'buyer',
+          senderLabel: 'AI Buyer',
+          content: `Purchase confirmed directly on store website via MCP. Booking ID: ${bookingId}, Settlement: ${agentPaymentId}.`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }
+      ]);
+
+      // Record transaction and audit event in CommerceContext & localStorage
+      const finalItems = activeBasket.map(it => ({
+        productId: String(it.id || 'item'),
+        productName: it.name,
+        price: it.price,
+        quantity: 1,
+        isUpsell: Boolean(it.isUpsell)
+      }));
+
+      const newTx: Transaction = {
+        id: String(bookingId),
+        orderId: typeof bookingId === 'string' ? bookingId : `ORD-${Date.now().toString().slice(-4)}`,
+        buyer: isAutonomousOrder ? 'AI Buyer (Autonomous Agent)' : 'AI Buyer (Human-Authorized)',
+        items: finalItems,
+        subtotal: baseProd.price,
+        upsellTotal: activeBasket.filter(it => it.isUpsell).reduce((s, it) => s + it.price, 0),
+        totalAmount: totalAmount,
+        policyStatus: 'Approved',
+        paymentStatus: 'Captured',
+        timestamp: `Today, ${new Date().toLocaleTimeString('en-US', { hour12: false })}`,
+        policyReason: policyDecision?.reason || (isAutonomousOrder ? 'Autonomous approval (under threshold)' : 'Human authorized payment'),
+        razorpayPaymentId: agentPaymentId,
+        razorpayOrderId: rzpOrderId || `order_${Math.random().toString(36).substring(2, 12)}`,
+        razorpayApiCalls: 2
+      };
+      addTransaction(newTx);
+
+      const newAudit: AuditEvent = {
+        id: `audit-${Date.now()}`,
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        actor: 'AI Buyer',
+        action: isAutonomousOrder ? 'Autonomous MCP Purchase Executed' : 'User-Authorized MCP Purchase Executed',
+        reason: `${isAutonomousOrder ? 'Autonomous checkout (< ₹' + formatINR(policy.approvalThreshold) + ')' : 'Authorized by user'} — Railway order ${bookingId} booked & settled (${agentPaymentId})`,
+        amount: totalAmount,
+        result: 'Allowed',
+        category: 'Payment'
+      };
+      addAuditEvent(newAudit);
+
+      await refreshCommerceData();
+    } catch (err: unknown) {
+      console.error('Checkout error:', err);
+      const msg = err instanceof Error ? err.message : 'Checkout invocation failed';
+      setErrorMessage(msg);
+      setAgentState('failed');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Buyer Decision Action (Accept / Skip Recommendation) with Dynamic Policy Engine
   const handleBuyerDecision = async (accepted: boolean) => {
     setBuyerDecision(accepted ? 'accepted' : 'skipped');
 
@@ -486,26 +981,181 @@ export default function LiveDemoPage() {
     setBasketItems(updatedBasket);
 
     const totalAmount = updatedBasket.reduce((sum, item) => sum + item.price, 0);
-
-    // Timeline update: Basket updated -> Ready for Transaction box checkout
-    setAgentState('ready_for_payment');
     const recName = recommendation?.name || mouseItem.name;
+
+    // Evaluate Dynamic Merchant Policy Gate
+    setAgentState('checking_policy');
     setTimelineSteps(prev => [
       ...prev.map(s => s.id === 't5' ? { ...s, status: 'done' as const } : s),
       { id: 't6', label: 'Basket updated', detail: accepted ? `Added ${recName}` : 'Upsell skipped', status: 'done' },
-      { id: 't7', label: 'Ready for Transaction', detail: `Total ₹${formatINR(totalAmount)} awaiting authorization`, status: 'active' }
+      { id: 't_pol', label: 'Policy Gate Tool', detail: `Evaluating ₹${formatINR(totalAmount)} against threshold ₹${formatINR(policy.approvalThreshold)} (Limit: ₹${formatINR(policy.maxTransactionLimit)})`, status: 'active' }
     ]);
 
-    setMessages(prev => [
-      ...prev,
-      {
-        id: `msg-${Date.now() + 1}`,
-        sender: 'merchant',
-        senderLabel: 'Merchant AI Agent',
-        content: `Basket updated (Total: ₹${formatINR(totalAmount)}). Please review the Transaction box and click "Fine with it, Can I Pay?" to evaluate policy and book your order on the live store platform.`,
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+    try {
+      const polCheck = await apiService.checkPolicy(totalAmount, 1, {
+        maxLimit: policy.maxTransactionLimit,
+        approvalThreshold: policy.approvalThreshold
+      });
+
+      setPolicyDecision({
+        allowed: polCheck.allowed,
+        requiresApproval: polCheck.requiresApproval,
+        isAutonomous: polCheck.isAutonomous,
+        reason: polCheck.reason,
+        maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+        approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold
+      });
+
+      if (!polCheck.allowed) {
+        // TIER 3: HARD POLICY BLOCK (> maxTransactionLimit)
+        setAgentState('policy_blocked');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'blocked' as const } : s),
+          { id: 't_block', label: '✕ Policy Blocked', detail: polCheck.reason, status: 'blocked' },
+          { id: 't_nopay', label: 'Payment Tool: NOT CALLED', detail: '0 MCP / Razorpay calls made', status: 'blocked' }
+        ]);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `Transaction blocked by Policy Gate! Total of ₹${formatINR(totalAmount)} exceeds your maximum limit of ₹${formatINR(policy.maxTransactionLimit)}. No order was placed and 0 payment calls were made.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+
+        const blockedTx: Transaction = {
+          id: `ORD-BLK-${Date.now().toString().slice(-4)}`,
+          orderId: `BLK-${Date.now().toString().slice(-4)}`,
+          buyer: 'AI Buyer (Autonomous Agent)',
+          items: updatedBasket.map(it => ({
+            productId: it.id || 'item',
+            productName: it.name,
+            price: it.price,
+            quantity: 1,
+            isUpsell: it.isUpsell
+          })),
+          subtotal: baseProd.price,
+          upsellTotal: accepted && recommendation ? recommendation.price : 0,
+          totalAmount,
+          policyStatus: 'Blocked',
+          paymentStatus: 'Blocked',
+          timestamp: `Today, ${new Date().toLocaleTimeString('en-US', { hour12: false })}`,
+          policyReason: polCheck.reason,
+          razorpayApiCalls: 0
+        };
+        addTransaction(blockedTx);
+
+        const blockedAudit: AuditEvent = {
+          id: `audit-${Date.now()}`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+          actor: 'Policy Engine',
+          action: 'Policy Limit Evaluated',
+          reason: polCheck.reason,
+          amount: totalAmount,
+          result: 'Blocked',
+          category: 'Blocked'
+        };
+        addAuditEvent(blockedAudit);
+        return;
       }
-    ]);
+
+      if (polCheck.requiresApproval) {
+        // TIER 2: HUMAN-IN-THE-LOOP REQUIRED (> approvalThreshold && <= maxTransactionLimit)
+        setAgentState('awaiting_human_authorization');
+        setTimelineSteps(prev => [
+          ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
+          {
+            id: 't_hitl',
+            label: 'Human Authorization Required',
+            detail: `₹${formatINR(totalAmount)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`,
+            status: 'active'
+          }
+        ]);
+
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `msg-${Date.now() + 1}`,
+            sender: 'merchant',
+            senderLabel: 'Merchant AI Agent',
+            content: `Basket calculated at ₹${formatINR(totalAmount)}. Because this payment exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+          }
+        ]);
+        return;
+      }
+
+      // TIER 1: ZERO-TOUCH AUTONOMOUS PURCHASE (<= approvalThreshold)
+      setTimelineSteps(prev => [
+        ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
+        {
+          id: 't_auto',
+          label: 'Autonomous Approval',
+          detail: `₹${formatINR(totalAmount)} <= ₹${formatINR(policy.approvalThreshold)} (Zero-touch auto-buy)`,
+          status: 'done'
+        }
+      ]);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `msg-${Date.now() + 1}`,
+          sender: 'merchant',
+          senderLabel: 'Merchant AI Agent',
+          content: `⚡ Autonomous Policy Approval! Total ₹${formatINR(totalAmount)} is within your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Placing order on the live store website automatically via MCP without asking for permission...`,
+          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+        }
+      ]);
+
+      // Trigger autonomous purchase without asking user permission
+      setTimeout(() => {
+        handleExecuteOrderPlacement(updatedBasket, true);
+      }, 400);
+
+    } catch (e: unknown) {
+      console.error('Policy evaluation error:', e);
+      setAgentState('ready_for_payment');
+    }
+  };
+
+  // Interactive Chatbot Handler for AI Buyer
+  const handleChatSubmit = () => {
+    const trimmed = buyerInput.trim();
+    if (!trimmed || isProcessing) return;
+
+    const lower = trimmed.toLowerCase();
+
+    // 1. If currently awaiting buyer approval on an upsell recommendation:
+    if (agentState === 'awaiting_buyer_approval') {
+      if (/^(yes|add|accept|include|ok|sure|yeah|yep|proceed with all)\b/i.test(lower)) {
+        handleBuyerDecision(true);
+        setBuyerInput('');
+        return;
+      } else if (/^(no|skip|decline|pass|cancel|nope|only|just|skip this|without)\b/i.test(lower)) {
+        handleBuyerDecision(false);
+        setBuyerInput('');
+        return;
+      }
+    }
+
+    // 2. If currently awaiting human authorization at the Policy Gate:
+    if (agentState === 'awaiting_human_authorization') {
+      if (/^(yes|approve|pay|confirm|authorize|proceed|place\s*order|ok|sure)\b/i.test(lower)) {
+        handleExecuteOrderPlacement(basketItems, false);
+        setBuyerInput('');
+        return;
+      } else if (/^(no|reject|cancel|decline|abort|stop|nope)\b/i.test(lower)) {
+        handleRejectTransaction();
+        setBuyerInput('');
+        return;
+      }
+    }
+
+    // 3. Otherwise treat as a shopping intent or direct order command
+    handleStartDemo(trimmed);
   };
 
   // Run Blocked Scenario Demo: Laptop (₹65,000) + Monitor (₹12,000) = ₹77,000 > ₹70,000
@@ -559,7 +1209,7 @@ export default function LiveDemoPage() {
     setTimelineSteps(prev => [
       ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
       { id: 't3', label: 'Products selected', detail: `${laptopItem.name} + ${monitorItem.name} (₹${totalBlockedAmount.toLocaleString()})`, status: 'done' },
-      { id: 't4', label: 'Policy Tool', detail: 'Evaluating ₹77,000 against policy limit ₹70,000', status: 'active' }
+      { id: 't4', label: 'Policy Tool', detail: `Evaluating ₹${totalBlockedAmount.toLocaleString()} against policy limit ₹${policy.maxTransactionLimit.toLocaleString()}`, status: 'active' }
     ]);
     setAgentState('checking_policy');
 
@@ -578,8 +1228,11 @@ export default function LiveDemoPage() {
 
     setPolicyDecision({
       allowed: false,
+      requiresApproval: false,
+      isAutonomous: false,
       reason: `Transaction total ₹${totalBlockedAmount.toLocaleString()} exceeds merchant's maximum limit of ₹${policy.maxTransactionLimit.toLocaleString()}. Payment Tool was NOT called.`,
-      maxLimit: policy.maxTransactionLimit
+      maxLimit: policy.maxTransactionLimit,
+      approvalThreshold: policy.approvalThreshold
     });
 
     setAgentState('policy_blocked');
@@ -614,7 +1267,6 @@ export default function LiveDemoPage() {
   // Simulate Payment Failure Demo
   const handleSimulatePaymentFailure = async () => {
     if (!currentOrderId) {
-      // First start standard demo to get an order
       await handleStartDemo();
       return;
     }
@@ -648,125 +1300,9 @@ export default function LiveDemoPage() {
     }
   };
 
-  // Pay with Razorpay Checkout Modal via live Railway Store MCP Server
-  const handlePayWithRazorpay = async () => {
-    setIsProcessing(true);
-    setErrorMessage(null);
-
-    const baseProd = selectedProduct || laptopItem;
-    const totalAmount = basketItems.length > 0
-      ? basketItems.reduce((sum, item) => sum + item.price, 0)
-      : baseProd.price;
-
-    // 1. Authoritative Policy Gate Check First
-    setAgentState('checking_policy');
-    setTimelineSteps(prev => [
-      ...prev.map(s => s.id === 't7' ? { ...s, status: 'done' as const } : s).filter(s => s.id !== 't_pol'),
-      { id: 't_pol', label: 'Policy Tool', detail: `Evaluating transaction limit for ₹${formatINR(totalAmount)}`, status: 'active' }
-    ]);
-
-    try {
-      const polCheck = await apiService.checkPolicy(totalAmount);
-      setPolicyDecision({
-        allowed: polCheck.allowed,
-        reason: polCheck.reason,
-        maxLimit: polCheck.maxLimit || policy.maxTransactionLimit
-      });
-
-      if (!polCheck.allowed) {
-        setAgentState('policy_blocked');
-        setTimelineSteps(prev => [
-          ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'blocked' as const } : s),
-          { id: 't_block', label: 'Policy Blocked', detail: polCheck.reason, status: 'blocked' }
-        ]);
-        setIsProcessing(false);
-        return;
-      }
-
-      setTimelineSteps(prev => [
-        ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
-        { id: 't_appr', label: 'Policy Approved', detail: `₹${formatINR(totalAmount)} <= ₹${formatINR(policy.maxTransactionLimit)}`, status: 'done' }
-      ]);
-
-      // 2. Buy on live Railway MCP Store (create_order)
-      setAgentState('payment_pending');
-      const orderItems = [
-        { productId: String(baseProd.id), quantity: 1, name: baseProd.name }
-      ];
-      if (buyerDecision === 'accepted' && recommendation) {
-        orderItems.push({ productId: String(recommendation.id), quantity: 1, name: recommendation.name });
-      }
-
-      const railwayOrder = await apiService.createRailwayOrder('buyer@demo.com', 'Demo Buyer', orderItems);
-      const bookingId = railwayOrder?.orderId || railwayOrder?.id || `ORD-${Date.now().toString().slice(-6)}`;
-      const rzpOrderId = railwayOrder?.razorpayOrderId;
-
-      // Also record in local backend for audit trail
-      try {
-        const backendOrderItems = [
-          { product_id: Number(baseProd.id) || 1001, quantity: 1 }
-        ];
-        if (buyerDecision === 'accepted' && recommendation) {
-          backendOrderItems.push({ product_id: Number(recommendation.id) || 1021, quantity: 1 });
-        }
-        const beOrder = await apiService.createOrder(1, 'demo-ai-buyer', backendOrderItems);
-        setCurrentOrderId(beOrder.order_id);
-      } catch (beErr) {
-        console.warn('Backend order recording notice:', beErr);
-      }
-
-      setCurrentBookingId(bookingId);
-      setCapturedRazorpayOrderId(rzpOrderId || null);
-
-      // 3. Autonomous Agent Checkout & Settlement on Railway Store via MCP Server
-      const agentPaymentId = `pay_agent_mcp_${Math.random().toString(36).substring(2, 10)}`;
-
-      // Automatically mark order PAID on Railway platform via MCP endpoint
-      if (bookingId && typeof bookingId === 'string' && bookingId.startsWith('cmtl')) {
-        await apiService.updateRailwayOrderPaid(bookingId, agentPaymentId);
-      }
-
-      setAgentState('completed');
-      setCapturedPaymentId(agentPaymentId);
-      setCapturedRazorpayOrderId(rzpOrderId || null);
-
-      setTimelineSteps(prev => [
-        ...prev,
-        { id: 't_mcp', label: 'Railway MCP Store', detail: `Created live order ${bookingId}`, status: 'done' },
-        { id: 't_paid', label: 'Agent MCP Execution', detail: `Autonomous booking & settlement (${agentPaymentId})`, status: 'done' },
-        { id: 't_cap', label: 'Railway Store Confirmed', detail: `Order ${bookingId} marked PAID in live DB`, status: 'done' }
-      ]);
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: `msg-${Date.now()}`,
-          sender: 'merchant',
-          senderLabel: 'Merchant AI Agent',
-          content: `Autonomous Agent Checkout Completed! Order ${bookingId} was booked on the live Railway platform using MCP tools. Razorpay Order: ${rzpOrderId || 'N/A'}, Settlement: ${agentPaymentId}.`,
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        },
-        {
-          id: `msg-${Date.now() + 1}`,
-          sender: 'buyer',
-          senderLabel: 'AI Buyer',
-          content: `Purchase confirmed directly on store website via MCP. Booking ID: ${bookingId}, Settlement: ${agentPaymentId}.`,
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-        }
-      ]);
-
-      await refreshCommerceData();
-    } catch (err: unknown) {
-      console.error('Checkout error:', err);
-      const msg = err instanceof Error ? err.message : 'Checkout invocation failed';
-      setErrorMessage(msg);
-      setAgentState('failed');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const calculatedTotal = basketItems.reduce((acc, curr) => acc + curr.price, 0);
+  const calculatedTotal = basketItems.length > 0
+    ? basketItems.reduce((acc, curr) => acc + curr.price, 0)
+    : (selectedProduct?.price || 0);
   const isBasketWithinBudget = calculatedTotal <= effectiveBudget;
 
   return (
@@ -885,31 +1421,6 @@ export default function LiveDemoPage() {
               </div>
             </div>
 
-            {/* Editable Request Prompt Input */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-700 block">
-                Buyer Prompt / Intent:
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={buyerInput}
-                  onChange={(e) => setBuyerInput(e.target.value)}
-                  disabled={isProcessing || agentState !== 'idle'}
-                  placeholder="e.g. I need a mic for work under ₹60,000."
-                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-600 disabled:bg-slate-100"
-                />
-                <button
-                  onClick={() => handleStartDemo(buyerInput)}
-                  disabled={isProcessing || agentState !== 'idle' || !buyerInput.trim()}
-                  className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow-2xs disabled:bg-slate-300 transition-colors shrink-0"
-                >
-                  <Send className="w-3 h-3" />
-                  <span>Send Request</span>
-                </button>
-              </div>
-            </div>
-
             {/* Structured Agent-to-Agent Message Card */}
             <div className="space-y-1.5 animate-in fade-in duration-200">
               <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
@@ -918,7 +1429,7 @@ export default function LiveDemoPage() {
               </div>
               <div className="bg-slate-900 text-slate-200 p-3 rounded-lg text-[11px] font-mono border border-slate-800 space-y-1 shadow-inner">
                 <div className="text-purple-400 font-bold">{'// AI BUYER REQUEST'}</div>
-                <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest?.intent || `purchase_${effectiveCategory}`}&quot;</div>
+                <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest?.intent || `purchase_${effectiveCategory.toLowerCase().replace(/\s+/g, '_')}`}&quot;</div>
                 <div><span className="text-slate-400">category:</span> &quot;{effectiveCategory}&quot;</div>
                 <div><span className="text-slate-400">budget:</span> <span suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span></div>
                 <div><span className="text-slate-400">use_case:</span> &quot;{effectiveUseCase}&quot;</div>
@@ -927,14 +1438,17 @@ export default function LiveDemoPage() {
             </div>
 
             {/* Conversation Messages Thread */}
-            <div className="border-t border-slate-200 pt-3 pb-4 space-y-2.5 max-h-[300px] overflow-y-auto">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
-                Agent Conversation Thread
-              </span>
+            <div className="border-t border-slate-200 pt-3 space-y-2.5 max-h-[260px] overflow-y-auto">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Agent Conversation Thread
+                </span>
+                <span className="text-[10px] text-purple-600 font-medium">Interactive Chat</span>
+              </div>
 
               {messages.length === 0 ? (
                 <p className="text-xs text-slate-400 italic py-3 text-center">
-                  Click &quot;Start Demo&quot; or &quot;Send Request&quot; to initiate agent conversation.
+                  Type a product command below or click &quot;Start Demo&quot; to begin chatting.
                 </p>
               ) : (
                 messages.map((m) => (
@@ -961,6 +1475,64 @@ export default function LiveDemoPage() {
                   </div>
                 ))
               )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Interactive Chatbot Input & Fast Triggers */}
+            <div className="border-t border-slate-200 pt-3 pb-4 space-y-2">
+              <label className="text-xs font-bold text-slate-700 block">
+                Chat with AI Buyer / Order Command:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={buyerInput}
+                  onChange={(e) => {
+                    setBuyerInput(e.target.value);
+                    setStructuredRequest(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleChatSubmit();
+                  }}
+                  disabled={isProcessing}
+                  placeholder="e.g. StrikePad Gaming Mouse Pad XL order this"
+                  className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-600 disabled:bg-slate-100"
+                />
+                <button
+                  onClick={handleChatSubmit}
+                  disabled={isProcessing || !buyerInput.trim()}
+                  className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs disabled:bg-slate-300 transition-colors shrink-0 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send</span>
+                </button>
+              </div>
+
+              {/* Quick suggestion prompt chips */}
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyerInput('StrikePad Gaming Mouse Pad XL order this');
+                    handleStartDemo('StrikePad Gaming Mouse Pad XL order this');
+                  }}
+                  disabled={isProcessing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition-colors text-left cursor-pointer"
+                >
+                  ⚡ StrikePad Gaming Mouse Pad XL order this
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBuyerInput('NovaBook Pro 14 order this');
+                    handleStartDemo('NovaBook Pro 14 order this');
+                  }}
+                  disabled={isProcessing}
+                  className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition-colors text-left cursor-pointer"
+                >
+                  🔒 NovaBook Pro 14 order this (&gt; ₹5,000 threshold)
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1158,9 +1730,14 @@ export default function LiveDemoPage() {
                 <p className="text-[11px] text-emerald-700 font-medium">Policy Gate &amp; Payment Service</p>
               </div>
             </div>
-            <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-semibold border border-emerald-200">
-              ₹70,000 Limit
-            </span>
+            <div className="flex items-center gap-1.5 font-mono text-[10px]">
+              <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-semibold border border-indigo-200" title="Autonomous Purchase Threshold">
+                Auto &le; ₹{formatINR(policy.approvalThreshold)}
+              </span>
+              <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-semibold border border-emerald-200" title="Maximum Transaction Limit">
+                Max ₹{formatINR(policy.maxTransactionLimit)}
+              </span>
+            </div>
           </div>
 
           <div className="px-5 space-y-4 pb-5">
@@ -1202,6 +1779,10 @@ export default function LiveDemoPage() {
                     <span className="font-mono font-bold text-slate-700" suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span>
                   </div>
                   <div className="flex justify-between text-slate-500">
+                    <span>Autonomous Threshold:</span>
+                    <span className="font-mono font-bold text-indigo-700" suppressHydrationWarning>₹{formatINR(policy.approvalThreshold)}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-500">
                     <span>Policy Limit:</span>
                     <span className="font-mono font-bold text-slate-700" suppressHydrationWarning>₹{formatINR(policy.maxTransactionLimit)}</span>
                   </div>
@@ -1236,23 +1817,41 @@ export default function LiveDemoPage() {
 
               {policyDecision ? (
                 <div className={`p-4 rounded-lg border space-y-2 text-xs ${
-                  policyDecision.allowed
-                    ? 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
-                    : 'bg-rose-50/60 border-rose-200 text-rose-950'
+                  !policyDecision.allowed
+                    ? 'bg-rose-50/60 border-rose-200 text-rose-950'
+                    : policyDecision.requiresApproval
+                      ? 'bg-amber-50/70 border-amber-300 text-amber-950'
+                      : 'bg-emerald-50/60 border-emerald-200 text-emerald-950'
                 }`}>
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-1.5 font-bold">
-                      {policyDecision.allowed ? (
-                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                      ) : (
+                      {!policyDecision.allowed ? (
                         <ShieldAlert className="w-4 h-4 text-rose-600" />
+                      ) : policyDecision.requiresApproval ? (
+                        <UserCheck className="w-4 h-4 text-amber-600" />
+                      ) : (
+                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
                       )}
-                      <span>POLICY GATE: {policyDecision.allowed ? 'APPROVED' : 'BLOCKED'}</span>
+                      <span>
+                        POLICY GATE: {!policyDecision.allowed
+                          ? 'BLOCKED'
+                          : policyDecision.requiresApproval
+                            ? 'HUMAN APPROVAL REQUIRED'
+                            : 'APPROVED'}
+                      </span>
                     </div>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      policyDecision.allowed ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+                      !policyDecision.allowed
+                        ? 'bg-rose-600 text-white'
+                        : policyDecision.requiresApproval
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-emerald-600 text-white'
                     }`}>
-                      {policyDecision.allowed ? 'ALLOW' : 'BLOCK'}
+                      {!policyDecision.allowed
+                        ? 'BLOCK'
+                        : policyDecision.requiresApproval
+                          ? 'APPROVAL NEEDED'
+                          : 'ALLOW'}
                     </span>
                   </div>
 
@@ -1315,7 +1914,9 @@ export default function LiveDemoPage() {
                   </div>
                   <div className="flex justify-between text-slate-300">
                     <span className="text-slate-400">Checkout Mode:</span>
-                    <span className="text-indigo-300 font-semibold">Autonomous Agent MCP Booking</span>
+                    <span className="text-indigo-300 font-semibold">
+                      {policyDecision?.isAutonomous ? 'Autonomous Zero-Touch MCP Booking' : 'Human-Authorized Agent MCP Booking'}
+                    </span>
                   </div>
                 </div>
 
@@ -1336,23 +1937,59 @@ export default function LiveDemoPage() {
                   </a>
                 </div>
               </div>
-            ) : agentState !== 'policy_blocked' && agentState !== 'failed' && selectedProduct ? (
-              <button
-                onClick={handlePayWithRazorpay}
-                disabled={isProcessing || agentState === 'payment_pending'}
-                className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:bg-slate-300 cursor-pointer"
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>
-                  {isProcessing || agentState === 'payment_pending'
-                    ? 'Executing Agent MCP Booking...'
-                    : `Fine with it, Can I Pay? (Pay ₹${formatINR(calculatedTotal)})`}
-                </span>
-              </button>
+            ) : agentState === 'awaiting_human_authorization' ? (
+              <div className="bg-amber-50/80 border border-amber-300 p-4 rounded-xl space-y-3 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-center justify-between pb-2 border-b border-amber-200">
+                  <div className="flex items-center gap-2 font-bold text-xs text-amber-950">
+                    <UserCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Human Authorization Required</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 border border-amber-300 font-mono">
+                    &gt; ₹{formatINR(policy.approvalThreshold)} Threshold
+                  </span>
+                </div>
+
+                <p className="text-[11px] leading-relaxed text-amber-900">
+                  Transaction total of <strong>₹{formatINR(calculatedTotal)}</strong> exceeds your autonomous threshold of <strong>₹{formatINR(policy.approvalThreshold)}</strong>. The agent is paused at the Policy Gate awaiting your authorization to book on the live store website.
+                </p>
+
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    onClick={() => handleExecuteOrderPlacement(basketItems, false)}
+                    disabled={isProcessing}
+                    className="w-full py-3 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:bg-slate-300"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isProcessing ? 'Placing Order on Store Website...' : `Approve & Place Order on Website (Pay ₹${formatINR(calculatedTotal)})`}</span>
+                  </button>
+                  <button
+                    onClick={handleRejectTransaction}
+                    disabled={isProcessing}
+                    className="w-full py-2 px-3 rounded-lg bg-white hover:bg-slate-100 text-slate-700 font-semibold text-xs border border-slate-300 text-center transition-colors cursor-pointer"
+                  >
+                    Reject / Cancel Order
+                  </button>
+                </div>
+              </div>
+            ) : agentState === 'payment_pending' ? (
+              <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-center gap-3 text-indigo-950 text-xs font-bold animate-pulse">
+                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Executing Agent MCP Booking &amp; Settlement on Live Website...</span>
+              </div>
             ) : agentState === 'policy_blocked' ? (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-semibold text-center flex items-center justify-center gap-2">
-                <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                <span>Payment Tool Not Called (Policy Blocked)</span>
+              <div className="p-4 bg-rose-50 border border-rose-300 text-rose-950 rounded-xl text-xs space-y-1.5 shadow-xs">
+                <div className="flex items-center gap-1.5 font-bold text-rose-900">
+                  <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Payment Tool Blocked by Policy</span>
+                </div>
+                <p className="text-[11px] text-rose-800 leading-relaxed">
+                  Transaction total of ₹{formatINR(calculatedTotal)} exceeds the merchant maximum limit of ₹{formatINR(policy.maxTransactionLimit)}. 0 Razorpay API and MCP calls were made.
+                </p>
+              </div>
+            ) : agentState === 'awaiting_buyer_approval' ? (
+              <div className="p-3.5 rounded-lg border border-indigo-100 bg-indigo-50/50 text-indigo-800 text-xs text-center flex items-center justify-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
+                <span>Awaiting buyer approval on recommendation in chat...</span>
               </div>
             ) : null}
           </div>
