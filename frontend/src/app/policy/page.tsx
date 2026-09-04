@@ -9,28 +9,33 @@ import {
   XCircle,
   Sliders,
   Sparkles,
-  UserCheck
+  UserCheck,
+  Smartphone
 } from 'lucide-react';
 
 export default function PolicyPage() {
-  const { policy, updatePolicy } = useCommerce();
+  const { policy, updatePolicy, cumulativeSpent } = useCommerce();
   const [maxLimitInput, setMaxLimitInput] = useState(policy.maxTransactionLimit.toString());
   const [approvalThresholdInput, setApprovalThresholdInput] = useState(policy.approvalThreshold.toString());
+  const [cumulativeBudgetInput, setCumulativeBudgetInput] = useState((policy.cumulativeBudgetLimit || 50000).toString());
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
     setMaxLimitInput(policy.maxTransactionLimit.toString());
     setApprovalThresholdInput(policy.approvalThreshold.toString());
-  }, [policy.maxTransactionLimit, policy.approvalThreshold]);
+    setCumulativeBudgetInput((policy.cumulativeBudgetLimit || 50000).toString());
+  }, [policy.maxTransactionLimit, policy.approvalThreshold, policy.cumulativeBudgetLimit]);
 
   const handleSaveLimits = (e: React.FormEvent) => {
     e.preventDefault();
     const newMax = Math.max(1000, Number(maxLimitInput) || 70000);
     const newThreshold = Math.max(500, Math.min(newMax, Number(approvalThresholdInput) || 5000));
+    const newCumulative = Math.max(1000, Number(cumulativeBudgetInput) || 50000);
     
     updatePolicy({
       maxTransactionLimit: newMax,
-      approvalThreshold: newThreshold
+      approvalThreshold: newThreshold,
+      cumulativeBudgetLimit: newCumulative
     });
 
     setSavedSuccess(true);
@@ -140,6 +145,22 @@ export default function PolicyPage() {
             </select>
           </div>
 
+          <div className="p-3.5 rounded-lg border border-purple-200 bg-purple-50/40 space-y-1.5">
+            <label className="block text-purple-950 font-bold flex items-center gap-1.5">
+              <Smartphone className="w-3.5 h-3.5 text-purple-600" />
+              <span>Cumulative Monthly Budget (₹)</span>
+            </label>
+            <p className="text-[10px] text-purple-700 leading-tight">
+              Spend velocity ceiling. Crossings trigger mobile push alerts &amp; pause auto-buy.
+            </p>
+            <input
+              type="number"
+              value={cumulativeBudgetInput}
+              onChange={(e) => setCumulativeBudgetInput(e.target.value)}
+              className="w-full px-3 py-2 border border-purple-300 rounded-lg font-mono font-bold text-purple-950 focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+            />
+          </div>
+
           <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-1.5 flex flex-col justify-between">
             <div>
               <label className="block text-slate-800 font-bold">Catalog Requirement</label>
@@ -153,7 +174,13 @@ export default function PolicyPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-4 flex justify-end pt-2 border-t border-slate-100">
+          <div className="lg:col-span-4 flex justify-between items-center pt-2 border-t border-slate-100">
+            <div className="text-xs text-slate-600 flex items-center gap-2">
+              <span className="font-medium">Current Monthly Spend:</span>
+              <span className="font-mono font-bold text-slate-900">₹{(cumulativeSpent || 0).toLocaleString()}</span>
+              <span className="text-slate-400">/</span>
+              <span className="font-mono font-bold text-purple-700">₹{(policy.cumulativeBudgetLimit || 50000).toLocaleString()}</span>
+            </div>
             <button
               type="submit"
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-lg shadow-sm transition-all cursor-pointer"

@@ -101,22 +101,18 @@ As autonomous AI agents evolve from conversational assistants into economic acto
                    └───────────────────┬───────────────────┘
                                        │
                                        ▼
-                         Zero-Hallucination Matching
-                       (e.g., StrikePad Mouse Pad — ₹800)
-                                       │
-                                       ▼
-                   ┌───────────────────────────────────────┐
-                   │   4. DYNAMIC POLICY GATE EVALUATION   │
-                   │   Server-side Deterministic Engine    │
-                   └───────────────────┬───────────────────┘
-                                       │
-       ┌───────────────────────────────┼───────────────────────────────┐
-       │                               │                               │
-       ▼                               ▼                               ▼
- TIER 1: AUTO-BUY            TIER 2: HITL APPROVAL            TIER 3: HARD BLOCK
+                    ┌───────────────────────────────────────┐
+                    │   4. DYNAMIC POLICY GATE EVALUATION   │
+                    │   Server-side Deterministic Engine    │
+                    │   + Cumulative Velocity SafeGuard     │
+                    └───────────────────┬───────────────────┘
+                                        │
+        ┌───────────────────────────────┼───────────────────────────────┐
+        │                               │                               │
+        ▼                               ▼                               ▼
+  TIER 1: AUTO-BUY            TIER 2: HITL APPROVAL            TIER 3: HARD BLOCK
 Total <= Approval Threshold    Total > Threshold & <= Limit     Total > Maximum Limit
 (e.g. ₹800 <= ₹5,000)          (e.g. ₹65,000 > ₹5,000)          (e.g. ₹77,000 > ₹70,000)
-       │                               │                               │
        ▼                               ▼                               ▼
  ⚡ ZERO-TOUCH ORDER           🔒 PAUSE AT GATE                🛑 POLICY VIOLATION
 • create_order on Live Store  • Renders Approve/Reject buttons • 0 Razorpay API calls
@@ -260,6 +256,31 @@ Every order placed by the agent follows the official Razorpay payment lifecycle:
 
 ---
 
+## 📱 Anti-Runaway AI Velocity Controls & Mobile Push SafeGuard
+
+A primary enterprise and regulatory concern with autonomous AI commerce agents is the **"Runaway Agent Problem"** (e.g., an agent executing dozens of small ₹500–₹2,000 transactions without human oversight, collectively draining an account). 
+
+To solve this, our platform enforces a **Cumulative Financial Velocity Guardrail**:
+
+1. **Rolling Monthly Spend Cap (Default: ₹50,000)**:
+   - Aggregates historical settled transactions (`cumulativeSpent`) in `CommerceContext` and PostgreSQL.
+   - Configurable live via the [Policy Settings Page](http://localhost:3000/policy).
+2. **SafeGuard Interceptor**:
+   - Before executing any transaction (even if it is $\le$ ₹5,000 and normally qualifies for zero-touch auto-buy), the Policy Gate computes:
+     $$\text{Projected Spend} = \text{Cumulative Spent} + \text{Current Order Amount}$$
+   - If $\text{Projected Spend} > \text{Monthly Budget Limit}$, autonomous auto-buy is **immediately suspended**.
+   - The transaction is escalated to **Human Authorization Required**.
+3. **Simulated Smartphone Push Notification Banner**:
+   - A floating, iOS/Android-styled push notification slides down from the top right:
+     > **📱 Razorpay SafeGuard • Just Now**  
+     > ⚠️ **Cumulative Budget Limit Exceeded**  
+     > *This purchase of ₹X pushes your monthly spending to ₹Y, crossing your set limit of ₹50,000! Autonomous buying suspended.*
+   - Includes real-time velocity progress bars, an **[ Authorize ]** button to override, and instant feedback.
+4. **Audit Trail Logging**:
+   - Velocity breaches and SafeGuard alerts are logged to the immutable compliance ledger for auditing.
+
+---
+
 ## 🎬 Copy-Paste Demo Scenarios & Step-by-Step Test Guide
 
 ### Scenario 1: Autonomous Auto-Buy Under Threshold ($\le$ ₹5,000)
@@ -326,6 +347,27 @@ Every order placed by the agent follows the official Razorpay payment lifecycle:
 4. **Result**:
    - Previously, ₹2,500 was auto-approved under ₹5,000.
    - Now, because ₹2,500 $>$ ₹1,000, the Policy Gate automatically pauses and requests human authorization!
+
+---
+
+### Scenario 5: Cumulative Spend Velocity Breach & Mobile SafeGuard Alert
+*Demonstrates prevention of the runaway AI spending loop and real-time mobile push alert.*
+
+1. Navigate to [http://localhost:3000/demo](http://localhost:3000/demo).
+2. Observe the **Monthly Budget SafeGuard** card in the right column (`Spent: ₹0 / ₹50,000`).
+3. To test the breach easily:
+   - Navigate to [http://localhost:3000/policy](http://localhost:3000/policy) and set the **Cumulative Monthly Budget** to `1000` (or buy multiple items to exceed ₹50,000).
+   - Click **Save & Update Policy Rules**.
+4. Return to `/demo` and enter: `"StrikePad Gaming Mouse Pad XL order this"` (₹800).
+   - If previous spend + ₹800 exceeds ₹1,000:
+5. **What Happens**:
+   - The **Mobile Push Notification banner** vibrates and slides down from the top right:
+     `⚠️ Cumulative Budget Limit Exceeded: Adding ₹800 crosses your set limit!`
+   - The Policy Gate displays: `📱 Mobile Push Notification Dispatched — Human Authorization Required`.
+   - Autonomous zero-touch buying is paused despite the item being under ₹5,000.
+6. **Resolution**:
+   - Click **Authorize** directly on the mobile notification banner (or click **Approve & Place Order on Website** in the Transaction box).
+   - Order is authorized and booked on live Railway PostgreSQL with an immutable audit record!
 
 ---
 

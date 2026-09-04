@@ -54,6 +54,8 @@ interface CommerceContextType {
     acceptedUpsell: boolean;
     upsellProduct?: Product;
   }) => Promise<{ allowed: boolean; transaction: Transaction; razorpayOrder?: PaymentOrderResponse | null; error?: string }>;
+  cumulativeSpent: number;
+  resetSpendingHistory: () => void;
   payWithRazorpay: (params: {
     orderId: number | string;
     amountInr: number;
@@ -463,6 +465,21 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   };
 
+  const cumulativeSpent = transactions
+    .filter(t => t.paymentStatus === 'Captured' || t.paymentStatus === 'Successful')
+    .reduce((sum, t) => sum + (t.totalAmount || 0), 0);
+
+  const resetSpendingHistory = () => {
+    setTransactions([]);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem(TX_STORAGE_KEY);
+      } catch (e) {
+        console.warn('Could not reset transactions:', e);
+      }
+    }
+  };
+
   return (
     <CommerceContext.Provider
       value={{
@@ -482,6 +499,8 @@ export const CommerceProvider: React.FC<{ children: ReactNode }> = ({ children }
         addProduct,
         refreshCommerceData,
         executeInteractiveFlow,
+        cumulativeSpent,
+        resetSpendingHistory,
         payWithRazorpay
       }}
     >

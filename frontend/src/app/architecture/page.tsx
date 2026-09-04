@@ -28,7 +28,8 @@ import {
   Terminal,
   ExternalLink,
   ChevronRight,
-  ShieldAlert
+  ShieldAlert,
+  Smartphone
 } from 'lucide-react';
 
 export default function ArchitecturePage() {
@@ -333,11 +334,32 @@ export default function ArchitecturePage() {
                   <div>&gt; ₹70,000</div>
                 </div>
               </div>
+
+              {/* Anti-Runaway AI Spend Velocity SafeGuard */}
+              <div className="mt-4 pt-3.5 border-t border-slate-800 flex flex-col md:flex-row items-center justify-between gap-3 text-left w-full">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center shrink-0">
+                    <Smartphone className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-rose-300 flex items-center gap-1.5">
+                      <span>Velocity Guardrail (Anti-Runaway AI Loop)</span>
+                      <span className="text-[9px] bg-rose-950 text-rose-300 border border-rose-800 px-1.5 py-0.2 rounded font-mono">Mobile Alert</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 font-sans leading-tight mt-0.5">
+                      Tracks rolling monthly expenditures. If total spend crosses <strong>₹50,000</strong>, autonomous auto-buy is <strong>immediately suspended</strong> and a real-time mobile push alert is dispatched to the buyer.
+                    </p>
+                  </div>
+                </div>
+                <div className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] font-mono text-amber-300 shrink-0">
+                  Velocity Limit: ₹50,000 / month
+                </div>
+              </div>
             </div>
           </div>
 
           {/* ========================================================================= */}
-          {/* 5. 3-TIER POLICY BRANCHING */}
+          {/* 5. 3-TIER POLICY BRANCHING + VELOCITY SAFEGUARD */}
           {/* ========================================================================= */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-5xl mx-auto pt-2">
             
@@ -360,6 +382,9 @@ export default function ArchitecturePage() {
                   <span className="font-bold text-emerald-800 block font-mono text-[11px]">3. Instant Receipt</span>
                   <span className="text-slate-600 text-[11px]">Returns verified paid invoice back to the shopper in chat.</span>
                 </div>
+                <div className="bg-rose-50 p-2 rounded border border-rose-200 text-[10.5px] text-rose-900 font-medium">
+                  <strong>SafeGuard Interceptor:</strong> Suspends to Tier 2 if Cumulative Spent &gt; ₹50,000 limit.
+                </div>
               </div>
             </div>
 
@@ -381,6 +406,10 @@ export default function ArchitecturePage() {
                 <div className="bg-white p-2.5 rounded-lg border border-indigo-200">
                   <span className="font-bold text-indigo-800 block font-mono text-[11px]">3. Razorpay Order Bound</span>
                   <span className="text-slate-600 text-[11px]">Generates <code className="text-[10px]">order_...</code> with HMAC SHA-256 validation.</span>
+                </div>
+                <div className="bg-purple-50 p-2 rounded border border-purple-200 text-[10.5px] text-purple-900 font-medium flex items-center gap-1.5">
+                  <Smartphone className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                  <span><strong>Mobile Push Alert:</strong> Dispatches notification if monthly limit breached.</span>
                 </div>
               </div>
             </div>
@@ -456,6 +485,7 @@ export default function ArchitecturePage() {
   "product_id": 4,
   "category": "Accessories",
   "budget_inr": 60000,
+  "cumulative_budget_limit_inr": 50000,   // Velocity ceiling to prevent runaway AI spending loops
   "preferences": {
     "speed": "express",
     "delivery_pincode": "560001",
@@ -472,7 +502,7 @@ export default function ArchitecturePage() {
               <span>Model Context Protocol (MCP) Settlement Response</span>
             </h2>
             <p className="text-xs text-slate-600">
-              Deterministic result produced after Policy Gate validation and database booking:
+              Deterministic result produced after Policy Gate &amp; Velocity evaluation:
             </p>
             <pre className="bg-slate-950 text-indigo-300 p-4 rounded-lg text-xs font-mono overflow-x-auto border border-slate-800 leading-relaxed">
 {`{
@@ -490,6 +520,12 @@ export default function ArchitecturePage() {
     "is_autonomous": true,
     "limit_inr": 70000,
     "rule": "Autonomous approval: total <= 5000"
+  },
+  "velocity_evaluation": {
+    "cumulative_spent_inr": 500,
+    "monthly_budget_limit_inr": 50000,
+    "is_velocity_exceeded": false,
+    "safeguard_mobile_push_fired": false
   },
   "database_audit": {
     "table": "orders",
@@ -510,7 +546,7 @@ export default function ArchitecturePage() {
           <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs space-y-4">
             <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
               <ShieldCheck className="w-5 h-5 text-emerald-600" />
-              <span>Deterministic Financial Policy Governance Matrix</span>
+              <span>Deterministic Financial Policy &amp; Velocity Governance Matrix</span>
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border border-slate-200 rounded-lg">
@@ -527,7 +563,7 @@ export default function ArchitecturePage() {
                   <tr className="bg-emerald-50/40">
                     <td className="p-3 font-mono font-bold text-emerald-800">&le; ₹5,000</td>
                     <td className="p-3 font-semibold text-emerald-700">Tier 1: Autonomous</td>
-                    <td className="p-3 text-slate-600">Zero-touch (No user click needed)</td>
+                    <td className="p-3 text-slate-600">Zero-touch (No user click needed unless velocity exceeded)</td>
                     <td className="p-3 font-mono text-[11px] text-emerald-900">Agent Settlement Token (<code>pay_agent_mcp_...</code>)</td>
                     <td className="p-3 text-slate-600">Auto-reserved &amp; marked PAID in live PostgreSQL</td>
                   </tr>
@@ -538,8 +574,20 @@ export default function ArchitecturePage() {
                     <td className="p-3 font-mono text-[11px] text-indigo-900">Razorpay Test Mode Order ID (<code>order_...</code>)</td>
                     <td className="p-3 text-slate-600">Reserved upon approval; HMAC SHA-256 verified</td>
                   </tr>
+                  <tr className="bg-purple-50/50">
+                    <td className="p-3 font-mono font-bold text-purple-900">&gt; ₹50,000 Cumulative</td>
+                    <td className="p-3 font-semibold text-purple-700 flex items-center gap-1">
+                      <Smartphone className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+                      <span>SafeGuard Velocity Gate</span>
+                    </td>
+                    <td className="p-3 text-purple-950 font-medium">
+                      Auto-suspended; <strong>Mobile Push Alert</strong> fired to buyer device
+                    </td>
+                    <td className="p-3 font-mono text-[11px] text-purple-900">Mandatory Human Authorization Signature</td>
+                    <td className="p-3 text-slate-600">SafeGuard velocity event logged in compliance audit trail</td>
+                  </tr>
                   <tr className="bg-rose-50/40">
-                    <td className="p-3 font-mono font-bold text-rose-800">&gt; ₹70,000</td>
+                    <td className="p-3 font-mono font-bold text-rose-800">&gt; ₹70,000 Single Tx</td>
                     <td className="p-3 font-semibold text-rose-700">Tier 3: Hard Block</td>
                     <td className="p-3 text-slate-600">Strict refusal (Non-overridable by user or LLM)</td>
                     <td className="p-3 font-mono text-[11px] text-rose-900">Payment Tools NOT Executed (0 Calls)</td>
@@ -603,8 +651,8 @@ export default function ArchitecturePage() {
               <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
               <span>Payment &amp; Guardrails</span>
             </div>
-            <div className="text-slate-700 font-semibold text-[11px]">Deterministic 3-Tier Gate</div>
-            <div className="text-[10px] text-slate-500 font-mono">Razorpay + HMAC SHA-256</div>
+            <div className="text-slate-700 font-semibold text-[11px]">3-Tier Gate + Velocity SafeGuard</div>
+            <div className="text-[10px] text-slate-500 font-mono">Mobile Push Alerts + Razorpay HMAC</div>
           </div>
 
         </div>

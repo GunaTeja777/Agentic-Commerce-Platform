@@ -17,6 +17,7 @@ export interface MerchantPolicy {
   allowedCategories: string[];
   status: 'Active' | 'Paused';
   catalogRequired: boolean;
+  cumulativeBudgetLimit?: number;
 }
 
 export interface OrderItem {

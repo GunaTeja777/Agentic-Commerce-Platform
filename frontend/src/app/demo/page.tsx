@@ -19,10 +19,12 @@ import {
   Check,
   Clock,
   Send,
-  UserCheck
+  UserCheck,
+  Smartphone
 } from 'lucide-react';
 
 import { formatINR } from '@/lib/format';
+import { MobileNotificationToast } from '@/components/ui/MobileNotificationToast';
 
 type AgentStatus =
   | 'idle'
@@ -142,7 +144,75 @@ function parsePromptDetails(prompt: string) {
 }
 
 export default function LiveDemoPage() {
-  const { products, policy, refreshCommerceData, auditEvents, addTransaction, addAuditEvent } = useCommerce();
+  const {
+    products,
+    policy,
+    refreshCommerceData,
+    auditEvents,
+    addTransaction,
+    addAuditEvent,
+    cumulativeSpent,
+    resetSpendingHistory
+  } = useCommerce();
+
+  // SafeGuard Mobile Notification States
+  const [isMobileAlertOpen, setIsMobileAlertOpen] = useState(false);
+  const [mobileAlertDetails, setMobileAlertDetails] = useState<{
+    orderAmount: number;
+    currentSpent: number;
+    projectedTotal: number;
+    budgetLimit: number;
+  } | null>(null);
+
+  // Helper: Evaluates financial policy AND cumulative monthly spend limit
+  const evaluateGuardrailWithBudget = (
+    amount: number,
+    polCheck: {
+      allowed: boolean;
+      requiresApproval: boolean;
+      isAutonomous: boolean;
+      reason: string;
+      maxLimit?: number;
+      approvalThreshold?: number;
+    }
+  ) => {
+    const budgetLimit = policy.cumulativeBudgetLimit || 50000;
+    const projectedTotal = cumulativeSpent + amount;
+    const exceedsCumulative = projectedTotal > budgetLimit;
+
+    let allowed = polCheck.allowed;
+    let requiresApproval = polCheck.requiresApproval;
+    let isAutonomous = polCheck.isAutonomous;
+    let reason = polCheck.reason;
+    let isSafeGuardTriggered = false;
+
+    if (allowed && exceedsCumulative) {
+      requiresApproval = true;
+      isAutonomous = false;
+      isSafeGuardTriggered = true;
+      reason = `⚠️ SafeGuard Limit Exceeded: Adding ₹${formatINR(amount)} pushes total spend to ₹${formatINR(projectedTotal)}, exceeding your monthly budget limit of ₹${formatINR(budgetLimit)}. Autonomous checkout suspended — human authorization required.`;
+      
+      setMobileAlertDetails({
+        orderAmount: amount,
+        currentSpent: cumulativeSpent,
+        projectedTotal: projectedTotal,
+        budgetLimit: budgetLimit
+      });
+      setIsMobileAlertOpen(true);
+    }
+
+    return {
+      allowed,
+      requiresApproval,
+      isAutonomous,
+      reason,
+      maxLimit: polCheck.maxLimit || policy.maxTransactionLimit,
+      approvalThreshold: polCheck.approvalThreshold || policy.approvalThreshold,
+      isSafeGuardTriggered,
+      projectedTotal,
+      budgetLimit
+    };
+  };
 
   // Demo flow states
   const [agentState, setAgentState] = useState<AgentStatus>('idle');
@@ -797,10 +867,11 @@ export default function LiveDemoPage() {
         stock: accMatched.stock
       });
 
-      const polCheck = await apiService.checkPolicy(matched.price, 1, {
+      const polRaw = await apiService.checkPolicy(matched.price, 1, {
         maxLimit: policy.maxTransactionLimit,
         approvalThreshold: policy.approvalThreshold
       });
+      const polCheck = evaluateGuardrailWithBudget(matched.price, polRaw);
       setPolicyDecision({
         allowed: polCheck.allowed,
         requiresApproval: polCheck.requiresApproval,
@@ -830,21 +901,40 @@ export default function LiveDemoPage() {
         ]);
       } else if (polCheck.requiresApproval) {
         setAgentState('awaiting_human_authorization');
-        setTimelineSteps(prev => [
-          ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
-          { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
-          { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(matched.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
-        ]);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now()}`,
-            sender: 'merchant',
-            senderLabel: 'Merchant AI Agent',
-            content: `I selected ${matched.name} for ₹${formatINR(matched.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-          }
-        ]);
+        if (polCheck.isSafeGuardTriggered) {
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+            { id: 't_safe', label: '📱 Mobile SafeGuard Alert Sent', detail: `Projected spend ₹${formatINR(polCheck.projectedTotal)} > ₹${formatINR(polCheck.budgetLimit)} limit`, status: 'active' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: 'Autonomous purchase paused by monthly budget limit', status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (SafeGuard Alert)',
+              content: `⚠️ **SafeGuard Budget Alert!** ${matched.name} (₹${formatINR(matched.price)}) pushes your monthly spending to **₹${formatINR(polCheck.projectedTotal)}**, exceeding your **₹${formatINR(polCheck.budgetLimit)}** limit! A mobile push notification alert was dispatched to your device. Autonomous zero-touch buying is paused — please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** to authorize.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        } else {
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't2' ? { ...s, status: 'done' as const } : s),
+            { id: 't3', label: 'Product selected', detail: `${matched.name} — ₹${formatINR(matched.price)}`, status: 'done' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(matched.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent',
+              content: `I selected ${matched.name} for ₹${formatINR(matched.price)}. Because this price exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        }
       } else {
         setAgentState('payment_pending');
         setTimelineSteps(prev => [
@@ -908,10 +998,11 @@ export default function LiveDemoPage() {
 
     // 3. Evaluate Policy Gate immediately
     try {
-      const polCheck = await apiService.checkPolicy(prod.price, 1, {
+      const polRaw = await apiService.checkPolicy(prod.price, 1, {
         maxLimit: policy.maxTransactionLimit,
         approvalThreshold: policy.approvalThreshold
       });
+      const polCheck = evaluateGuardrailWithBudget(prod.price, polRaw);
 
       setPolicyDecision({
         allowed: polCheck.allowed,
@@ -944,21 +1035,40 @@ export default function LiveDemoPage() {
       } else if (polCheck.requiresApproval) {
         // TIER 2: HUMAN AUTHORIZATION REQUIRED
         setAgentState('awaiting_human_authorization');
-        setTimelineSteps(prev => [
-          ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
-          { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
-          { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
-        ]);
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now() + 1}`,
-            sender: 'merchant',
-            senderLabel: 'Merchant AI Agent (Groq MCP)',
-            content: `🔒 **Human Authorization Required!** ${prod.name} costs ₹${formatINR(prod.price)}, exceeding your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** in this chat.`,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-          }
-        ]);
+        if (polCheck.isSafeGuardTriggered) {
+          setTimelineSteps(prev => [
+            ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
+            { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+            { id: 't_safe', label: '📱 Mobile SafeGuard Alert Sent', detail: `Projected spend ₹${formatINR(polCheck.projectedTotal)} > ₹${formatINR(polCheck.budgetLimit)} limit`, status: 'active' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: 'Paused by monthly cumulative spend limit', status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (SafeGuard Alert)',
+              content: `⚠️ **SafeGuard Budget Alert!** Selecting **${prod.name}** (₹${formatINR(prod.price)}) pushes your monthly spending to **₹${formatINR(polCheck.projectedTotal)}**, crossing your **₹${formatINR(polCheck.budgetLimit)}** budget! A mobile push notification alert was dispatched to your phone. Autonomous checkout is suspended — please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** in this chat.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        } else {
+          setTimelineSteps(prev => [
+            ...prev.filter(s => s.id !== 't_hitl' && s.id !== 't_auto'),
+            { id: 't_sel', label: 'Product Selected', detail: `${prod.name} — ₹${formatINR(prod.price)}`, status: 'done' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: `₹${formatINR(prod.price)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`, status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (Groq MCP)',
+              content: `🔒 **Human Authorization Required!** ${prod.name} costs ₹${formatINR(prod.price)}, exceeding your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}. Please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** in this chat.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        }
       } else {
         // TIER 1: ZERO-TOUCH AUTONOMOUS ORDER
         setAgentState('payment_pending');
@@ -1193,10 +1303,11 @@ export default function LiveDemoPage() {
     ]);
 
     try {
-      const polCheck = await apiService.checkPolicy(totalAmount, 1, {
+      const polRaw = await apiService.checkPolicy(totalAmount, 1, {
         maxLimit: policy.maxTransactionLimit,
         approvalThreshold: policy.approvalThreshold
       });
+      const polCheck = evaluateGuardrailWithBudget(totalAmount, polRaw);
 
       setPolicyDecision({
         allowed: polCheck.allowed,
@@ -1264,28 +1375,45 @@ export default function LiveDemoPage() {
       }
 
       if (polCheck.requiresApproval) {
-        // TIER 2: HUMAN-IN-THE-LOOP REQUIRED (> approvalThreshold && <= maxTransactionLimit)
+        // TIER 2: HUMAN-IN-THE-LOOP REQUIRED (> approvalThreshold && <= maxTransactionLimit, or Budget Exceeded)
         setAgentState('awaiting_human_authorization');
-        setTimelineSteps(prev => [
-          ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
-          {
-            id: 't_hitl',
-            label: 'Human Authorization Required',
-            detail: `₹${formatINR(totalAmount)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`,
-            status: 'active'
-          }
-        ]);
-
-        setMessages(prev => [
-          ...prev,
-          {
-            id: `msg-${Date.now() + 1}`,
-            sender: 'merchant',
-            senderLabel: 'Merchant AI Agent',
-            content: `Basket calculated at ₹${formatINR(totalAmount)}. Because this payment exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
-            timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
-          }
-        ]);
+        if (polCheck.isSafeGuardTriggered) {
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
+            { id: 't_safe', label: '📱 Mobile SafeGuard Alert Sent', detail: `Projected spend ₹${formatINR(polCheck.projectedTotal)} > ₹${formatINR(polCheck.budgetLimit)} limit`, status: 'active' },
+            { id: 't_hitl', label: 'Human Authorization Required', detail: 'Paused by monthly budget limit', status: 'active' }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent (SafeGuard Alert)',
+              content: `⚠️ **SafeGuard Budget Alert!** Basket total of **₹${formatINR(totalAmount)}** pushes your cumulative spend to **₹${formatINR(polCheck.projectedTotal)}**, exceeding your **₹${formatINR(polCheck.budgetLimit)}** budget! A push notification alert was dispatched to your mobile device. Autonomous checkout is suspended — please click **[ Approve & Place Order on Website ]** in the Transaction box or reply **"approve"** to authorize.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        } else {
+          setTimelineSteps(prev => [
+            ...prev.map(s => s.id === 't_pol' ? { ...s, status: 'done' as const } : s),
+            {
+              id: 't_hitl',
+              label: 'Human Authorization Required',
+              detail: `₹${formatINR(totalAmount)} > ₹${formatINR(policy.approvalThreshold)} (Approval threshold exceeded)`,
+              status: 'active'
+            }
+          ]);
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `msg-${Date.now() + 1}`,
+              sender: 'merchant',
+              senderLabel: 'Merchant AI Agent',
+              content: `Basket calculated at ₹${formatINR(totalAmount)}. Because this payment exceeds your autonomous threshold of ₹${formatINR(policy.approvalThreshold)}, user permission is required. Please authorize the transaction in the Policy Gate box to place the order on the store website.`,
+              timestamp: new Date().toLocaleTimeString('en-US', { hour12: false })
+            }
+          ]);
+        }
         return;
       }
 
@@ -2040,6 +2168,9 @@ export default function LiveDemoPage() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 font-mono text-[10px]">
+              <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded font-semibold border border-purple-200" title="Monthly Cumulative Budget">
+                Budget ₹{formatINR(policy.cumulativeBudgetLimit || 50000)}
+              </span>
               <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded font-semibold border border-indigo-200" title="Autonomous Purchase Threshold">
                 Auto &le; ₹{formatINR(policy.approvalThreshold)}
               </span>
@@ -2118,6 +2249,80 @@ export default function LiveDemoPage() {
               </div>
             </div>
 
+            {/* MONTHLY CUMULATIVE BUDGET VELOCITY SAFEGUARD */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Monthly Budget SafeGuard
+                </span>
+                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-1.5 py-0.2 rounded font-mono">
+                  Velocity Control
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-600 font-medium flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Cumulative Spend</span>
+                  </span>
+                  <span className="font-mono font-bold text-slate-900">
+                    ₹{formatINR(cumulativeSpent)} / ₹{formatINR(policy.cumulativeBudgetLimit || 50000)}
+                  </span>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden flex">
+                  <div
+                    className="bg-indigo-600 h-full transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.round((cumulativeSpent / (policy.cumulativeBudgetLimit || 50000)) * 100))}%` }}
+                    title={`Already spent: ₹${cumulativeSpent}`}
+                  />
+                  {calculatedTotal > 0 && (
+                    <div
+                      className={`h-full transition-all duration-300 ${
+                        cumulativeSpent + calculatedTotal > (policy.cumulativeBudgetLimit || 50000)
+                          ? 'bg-rose-500 animate-pulse'
+                          : 'bg-emerald-500'
+                      }`}
+                      style={{
+                        width: `${Math.min(
+                          100 - Math.min(100, Math.round((cumulativeSpent / (policy.cumulativeBudgetLimit || 50000)) * 100)),
+                          Math.max(3, Math.round((calculatedTotal / (policy.cumulativeBudgetLimit || 50000)) * 100))
+                        )}%`
+                      }}
+                      title={`Current order: ₹${calculatedTotal}`}
+                    />
+                  )}
+                </div>
+
+                <div className="flex justify-between text-[10.5px] text-slate-500 font-mono">
+                  <span>Projected: ₹{formatINR(cumulativeSpent + calculatedTotal)}</span>
+                  <span className={cumulativeSpent + calculatedTotal > (policy.cumulativeBudgetLimit || 50000) ? 'text-rose-600 font-bold' : 'text-slate-700'}>
+                    {Math.round(((cumulativeSpent + calculatedTotal) / (policy.cumulativeBudgetLimit || 50000)) * 100)}% of limit
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-slate-200 text-[10px]">
+                  {cumulativeSpent + calculatedTotal > (policy.cumulativeBudgetLimit || 50000) ? (
+                    <span className="text-rose-600 font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      <span>Budget exceeded! Mobile alert fired.</span>
+                    </span>
+                  ) : (
+                    <span className="text-emerald-700 font-medium">✓ Safe within monthly budget</span>
+                  )}
+                  <button
+                    onClick={resetSpendingHistory}
+                    className="text-indigo-600 hover:text-indigo-800 font-semibold underline cursor-pointer"
+                    title="Reset spending history for testing"
+                  >
+                    Reset Spend
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* POLICY GATE CARD */}
             <div className="space-y-2">
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
@@ -2167,6 +2372,16 @@ export default function LiveDemoPage() {
                   <p className="text-[11px] leading-relaxed text-slate-700">
                     {policyDecision.reason}
                   </p>
+
+                  {policyDecision.reason?.includes('SafeGuard') && (
+                    <div className="p-2.5 bg-rose-100/90 border border-rose-300 rounded-lg text-rose-950 text-xs flex items-center gap-2">
+                      <Smartphone className="w-4 h-4 text-rose-600 shrink-0 animate-bounce" />
+                      <div>
+                        <strong className="block text-[11px] text-rose-900">Mobile Push Notification Dispatched</strong>
+                        <span className="text-[10.5px] text-rose-800">Autonomous buying suspended. Human authorization required to override monthly spend velocity cap.</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-500 text-xs text-center italic">
@@ -2382,6 +2597,19 @@ export default function LiveDemoPage() {
         </div>
         <div ref={auditEndRef} />
       </div>
+
+      {/* Realistic Smartphone Push Notification SafeGuard Toast */}
+      {mobileAlertDetails && (
+        <MobileNotificationToast
+          isOpen={isMobileAlertOpen}
+          onClose={() => setIsMobileAlertOpen(false)}
+          orderAmount={mobileAlertDetails.orderAmount}
+          currentSpent={mobileAlertDetails.currentSpent}
+          projectedTotal={mobileAlertDetails.projectedTotal}
+          budgetLimit={mobileAlertDetails.budgetLimit}
+          onAuthorizeClick={() => handleExecuteOrderPlacement(basketItems, false)}
+        />
+      )}
     </div>
   );
 }

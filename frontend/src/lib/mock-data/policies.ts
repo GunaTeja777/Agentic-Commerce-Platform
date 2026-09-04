@@ -5,5 +5,6 @@ export const DEFAULT_POLICY: MerchantPolicy = {
   approvalThreshold: 5000,
   allowedCategories: ['Electronics', 'Accessories'],
   status: 'Active',
-  catalogRequired: true
+  catalogRequired: true,
+  cumulativeBudgetLimit: 50000
 };
