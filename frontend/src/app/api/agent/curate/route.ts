@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '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';
+const HF_TOKEN = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY || '';
 const HF_MODEL = process.env.CURATION_MODEL || 'meta-llama/Llama-3.3-70B-Instruct';
 const AGENT_BACKEND_URL = process.env.AGENT_URL || process.env.NEXT_PUBLIC_AGENT_URL || 'http://localhost:8001';
 

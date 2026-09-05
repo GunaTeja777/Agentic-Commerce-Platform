@@ -578,7 +578,7 @@ async def payment_initiation_node(state: AgentState) -> Dict[str, Any]:
                 "amount": p_info.get("amount"),
                 "amount_inr": total,
                 "currency": p_info.get("currency", "INR"),
-                "key_id": p_info.get("razorpay_key_id") or getattr(settings, "RAZORPAY_KEY_ID", "rzp_test_TWfbZX7sZugjLd"),
+                "key_id": p_info.get("razorpay_key_id") or getattr(settings, "RAZORPAY_KEY_ID", "rzp_test_placeholder"),
                 "request_id": request_id
             }
         else:

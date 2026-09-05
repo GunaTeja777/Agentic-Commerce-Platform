@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || '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';
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const HF_TOKEN = process.env.HF_TOKEN || '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';
+const HF_TOKEN = process.env.HF_TOKEN || '';
 const STORE_API_URL = process.env.STORE_API_URL || 'https://ai-growth-agentic-commerce-production.up.railway.app';
 
 interface RailwayProduct {

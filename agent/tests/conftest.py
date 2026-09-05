@@ -37,7 +37,7 @@ def default_backend_mocks(respx_mock):
                 "amount": 6650000,
                 "amount_inr": 66500.0,
                 "currency": "INR",
-                "key_id": "rzp_test_TWfbZX7sZugjLd",
+                "key_id": "rzp_test_mock_sample_key",
                 "status": "pending",
                 "receipt": "rcpt_ord_999"
             }
