@@ -28,7 +28,7 @@
 - [📁 Repository Structure & Directory Map](#-repository-structure--directory-map)
 - [⚙️ Environment Variables & Configuration](#️-environment-variables--configuration)
 - [🚀 Quickstart & Local Setup Guide](#-quickstart--local-setup-guide)
-- [📜 Hackathon Submission Details](#-hackathon-submission-details)
+- [📜 Project Details & License](#-project-details--license)
 
 ---
 
@@ -508,9 +508,9 @@ Visit [http://localhost:3000](http://localhost:3000) to view the application:
 
 ---
 
-## 📜 Hackathon Submission Details
+## 📜 Project Details & License
 
-- **Event**: Razorpay Ideathon / Hackathon
-- **Theme**: AI Growth & Agentic Commerce / Agent-to-Agent (A2A) Protocols
+- **Project**: Agentic Commerce — AI Merchant Growth Agent & A2A Platform
+- **Core Architecture**: Agent-to-Agent (A2A) Protocols, Model Context Protocol (MCP), UAP-Style Intent Contract
 - **Core Technologies**: Model Context Protocol (MCP), Groq LLaMA 3.3 70B, Hugging Face LLaMA 3.3 70B, Next.js 15, PostgreSQL, Prisma ORM, Razorpay Test Mode.
 - **License**: MIT License. Open source and free for commercial or experimental use.
