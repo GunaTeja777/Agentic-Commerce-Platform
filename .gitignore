@@ -1,6 +1,4 @@
 .venv
-.env
-.env*.local
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -8,3 +6,11 @@ node_modules/
 .next/
 dist/
 .DS_Store
+
+# Environment files and secrets (never commit)
+.env
+.env*
+!.env.example
+*.env
+*.pem
+*.key
