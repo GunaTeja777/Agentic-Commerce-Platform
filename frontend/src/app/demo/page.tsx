@@ -56,6 +56,9 @@ interface ChatMessage {
 interface StructuredBuyerRequest {
   buyer_id: string;
   intent: string;
+  action_type?: string;
+  search_query?: string;
+  target_order_id?: string;
   category: string;
   budget_inr: number;
   preferences: {
@@ -64,84 +67,7 @@ interface StructuredBuyerRequest {
   };
 }
 
-function parsePromptDetails(prompt: string) {
-  let budget = 70000;
-  // Match k shorthand e.g. 60k, 50k, 70k, 1k
-  const kMatch = prompt.match(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)?\s*(\d+(?:\.\d+)?)\s*k\b/i);
-  // Match numbers with prefix or 3-7 digit number e.g. within 1000, 60,000, ₹1000
-  const numMatch = prompt.match(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)\s*([\d,]+)/i) ||
-                   prompt.match(/(?:₹|rs\.?|inr)\s*([\d,]+)/i) ||
-                   prompt.match(/\b(\d{3,7})\b/);
-  
-  if (kMatch) {
-    budget = Math.round(parseFloat(kMatch[1]) * 1000);
-  } else if (numMatch) {
-    const cleanNum = parseInt(numMatch[1].replace(/,/g, ''), 10);
-    if (!isNaN(cleanNum) && cleanNum > 0) {
-      budget = cleanNum;
-    }
-  }
 
-  // Extract clean item query
-  const cleanedItem = prompt
-    .replace(/(?:i\s+need|i\s+want|looking\s+for|please\s+find|find\s+me|get\s+me|buy|order\s+this|order|purchase|checkout|a|an|the)\b/gi, ' ')
-    .replace(/(?:under|below|budget|within|upto|up to|max|limit|around|for|rs\.?|₹|inr)\s*[\d,]+(?:\s*k)?/gi, ' ')
-    .replace(/\b\d+(?:\.\d+)?\s*k\b/gi, ' ')
-    .replace(/[^\w\s-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  let category = cleanedItem || 'laptop';
-  let categoryLabel = cleanedItem || 'Laptops';
-
-  if (/mouse\s*pad|mousepad|strikepad|desk\s*pad|mat/i.test(prompt)) {
-    category = cleanedItem || 'Mouse Pad';
-    categoryLabel = 'Gaming Accessories';
-  } else if (/mic|microphone/i.test(prompt)) {
-    category = 'mic';
-    categoryLabel = 'Audio & Microphones';
-  } else if (/headphone|earphone|headset|audio|speaker/i.test(prompt)) {
-    category = 'headphones';
-    categoryLabel = 'Audio';
-  } else if (/monitor|display|screen/i.test(prompt)) {
-    category = 'monitor';
-    categoryLabel = 'Monitors';
-  } else if (/laptop|macbook|notebook|computer|pc/i.test(prompt)) {
-    category = 'laptop';
-    categoryLabel = 'Laptops';
-  } else if (/mouse|trackpad/i.test(prompt)) {
-    category = 'mouse';
-    categoryLabel = 'Peripherals';
-  } else if (/keyboard/i.test(prompt)) {
-    category = 'keyboard';
-    categoryLabel = 'Peripherals';
-  } else if (/phone|mobile/i.test(prompt)) {
-    category = 'smartphone';
-    categoryLabel = 'Smartphones';
-  } else if (/bag|backpack/i.test(prompt)) {
-    category = 'bag';
-    categoryLabel = 'Accessories';
-  } else if (/organizer|cable|stand|dock|hub|holder|case|sleeve/i.test(prompt)) {
-    category = cleanedItem || 'Cable Organizer';
-    categoryLabel = 'Accessories';
-  }
-
-  let useCase = 'work';
-  if (/gaming|game/i.test(prompt)) useCase = 'gaming';
-  else if (/student|college|study/i.test(prompt)) useCase = 'study';
-  else if (/creator|video|stream|audio|music|edit/i.test(prompt)) useCase = 'creative';
-  else if (/travel|portable/i.test(prompt)) useCase = 'travel';
-
-  let priority = 'standard';
-  if (/battery/i.test(prompt)) priority = 'Good battery';
-  else if (/clarity|clear|sound|voice/i.test(prompt)) priority = 'High clarity';
-  else if (/noise\s*cancellation|anc/i.test(prompt)) priority = 'Noise cancellation';
-  else if (/wireless|bluetooth/i.test(prompt)) priority = 'Wireless';
-  else if (/lightweight|portable/i.test(prompt)) priority = 'Lightweight';
-  else if (/budget|cheap|affordable/i.test(prompt)) priority = 'Budget-friendly';
-
-  return { budget, category, categoryLabel, useCase, priority };
-}
 
 export default function LiveDemoPage() {
   const {
@@ -263,10 +189,12 @@ export default function LiveDemoPage() {
   const [timelineSteps, setTimelineSteps] = useState<Array<{ id: string; label: string; detail?: string; status: 'pending' | 'active' | 'done' | 'blocked' | 'failed' }>>([]);
 
   const auditEndRef = useRef<HTMLDivElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
   }, [messages]);
 
   // Keep policy decision in sync with current basket total and policy limits
@@ -297,37 +225,12 @@ export default function LiveDemoPage() {
   }, [basketItems, selectedProduct, policy.approvalThreshold, policy.maxTransactionLimit]);
 
   // Dynamic live parsed prompt intent
-  const liveParsed = parsePromptDetails(buyerInput);
-  const effectiveBudget = structuredRequest?.budget_inr || liveParsed.budget;
-  const effectiveCategory = structuredRequest?.category || liveParsed.category;
-  const effectiveUseCase = structuredRequest?.preferences?.use_case || liveParsed.useCase;
-  const effectivePriority = structuredRequest?.preferences?.priority || liveParsed.priority;
+  const effectiveBudget = structuredRequest?.budget_inr || 70000;
+  const effectiveCategory = structuredRequest?.category || 'General';
+  const effectiveUseCase = structuredRequest?.preferences?.use_case || 'general';
+  const effectivePriority = structuredRequest?.preferences?.priority || 'standard';
 
-  // Dynamic LLM query curation whenever prompt changes (debounced 400ms)
-  React.useEffect(() => {
-    if (!buyerInput.trim()) return;
-    const timer = setTimeout(async () => {
-      try {
-        const curated = await apiService.curatePrompt(buyerInput, 'demo-ai-buyer');
-        if (curated && curated.structured_request) {
-          setStructuredRequest({
-            buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
-            intent: curated.structured_request.intent || `purchase_${(curated.search_query || curated.category || 'product').toLowerCase().replace(/\s+/g, '_')}`,
-            category: curated.search_query || curated.category,
-            budget_inr: Number(curated.budget_inr) || liveParsed.budget,
-            preferences: {
-              use_case: curated.use_case || liveParsed.useCase,
-              priority: curated.priority_feature || liveParsed.priority
-            }
-          });
-        }
-      } catch {
-        // Fallback silently to live parsed local values
-      }
-    }, 400);
 
-    return () => clearTimeout(timer);
-  }, [buyerInput, liveParsed.budget, liveParsed.useCase, liveParsed.priority]);
 
   // Initialize products fallback
   const laptopItem: Product = products.find(p => p.category === 'Laptops') || {
@@ -470,50 +373,43 @@ export default function LiveDemoPage() {
     setIsProcessing(true);
     const now = new Date().toLocaleTimeString('en-US', { hour12: false });
 
-    const parsed = parsePromptDetails(query);
-
-    // 1. Structured Buyer Request (Curated via LLM / Rule Fallback)
+    // 1. Structured Buyer Request (Curated via Buyer-Side LLM)
+    let action = 'ORDER';
+    let targetOrderId: string | undefined = undefined;
     let structured: StructuredBuyerRequest = {
       buyer_id: 'demo-ai-buyer',
-      intent: `purchase_${parsed.category}`,
-      category: parsed.category,
-      budget_inr: parsed.budget,
+      intent: 'purchase_product',
+      category: 'General',
+      budget_inr: 70000,
       preferences: {
-        use_case: parsed.useCase,
-        priority: parsed.priority
+        use_case: 'general',
+        priority: 'standard'
       }
     };
 
-    let action = 'ORDER';
-    let targetOrderId: string | undefined = undefined;
-
     try {
       const curated = await apiService.curatePrompt(query, 'demo-ai-buyer');
-      if (curated && curated.structured_request) {
-        action = curated.action_type || (
-          /\b(?:what\s+are\s+my\s+orders|show\s+my\s+orders|list\s+orders|my\s+orders|order\s+history|what\s+did\s+i\s+buy)\b/i.test(query) ? 'LIST_ORDERS' :
-          /\b(?:cancel|abort)\b/i.test(query) ? 'CANCEL_ORDER' :
-          /\b(?:order\s+status|status\s+of|track)\b/i.test(query) ? 'ORDER_STATUS' :
-          /\b(?:limit|threshold|how\s+much\s+can\s+i\s+spend|allowance)\b/i.test(query) ? 'POLICY_INQUIRY' :
-          /^(?:help|what\s+can\s+you\s+do|commands|hi|hello)\b/i.test(query) ? 'HELP' :
-          'ORDER'
-        );
-        targetOrderId = curated.target_order_id;
-        structured = {
-          buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
-          action_type: action,
-          intent: curated.structured_request.intent || `purchase_${parsed.category}`,
-          category: curated.structured_request.category || parsed.category,
-          target_order_id: targetOrderId,
-          budget_inr: Number(curated.structured_request.budget_inr) || parsed.budget,
-          preferences: {
-            use_case: curated.structured_request.preferences?.use_case || parsed.useCase,
-            priority: curated.structured_request.preferences?.priority || parsed.priority
-          }
-        };
+      if (curated) {
+        action = curated.action_type || curated.structured_request?.action_type || 'ORDER';
+        targetOrderId = curated.target_order_id || curated.structured_request?.target_order_id;
+        if (curated.structured_request) {
+          structured = {
+            buyer_id: curated.structured_request.buyer_id || 'demo-ai-buyer',
+            intent: curated.structured_request.intent || 'purchase_product',
+            category: curated.structured_request.category || 'General',
+            budget_inr: Number(curated.structured_request.budget_inr) || 70000,
+            preferences: {
+              use_case: curated.structured_request.preferences?.use_case || 'general',
+              priority: curated.structured_request.preferences?.priority || 'standard'
+            },
+            action_type: action,
+            target_order_id: targetOrderId,
+            search_query: curated.search_query || curated.structured_request.category
+          };
+        }
       }
     } catch (e) {
-      console.warn('Could not curate via LLM, using parsed local fallback:', e);
+      console.warn('Curation error, using safe default:', e);
     }
     setStructuredRequest(structured);
 
@@ -706,7 +602,7 @@ export default function LiveDemoPage() {
         const prod: Product = {
           id: String(agentRes.selected_product.product_id),
           name: agentRes.selected_product.product_name,
-          category: agentRes.selected_product.category || parsed.categoryLabel,
+          category: agentRes.selected_product.category || structured.category || 'General',
           price: agentRes.selected_product.price_inr,
           stock: agentRes.selected_product.stock_quantity || 15,
           description: agentRes.selected_product.description || '',
@@ -1774,24 +1670,10 @@ export default function LiveDemoPage() {
               </div>
             </div>
 
-            {/* Structured Agent-to-Agent Message Card */}
-            <div className="space-y-1.5 animate-in fade-in duration-200">
-              <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold uppercase tracking-wider">
-                <span>Structured Commerce Payload</span>
-                <span className="font-mono text-[10px] text-purple-600">A2A Format</span>
-              </div>
-              <div className="bg-slate-900 text-slate-200 p-3 rounded-lg text-[11px] font-mono border border-slate-800 space-y-1 shadow-inner">
-                <div className="text-purple-400 font-bold">{'// AI BUYER REQUEST'}</div>
-                <div><span className="text-slate-400">intent:</span> &quot;{structuredRequest?.intent || `purchase_${effectiveCategory.toLowerCase().replace(/\s+/g, '_')}`}&quot;</div>
-                <div><span className="text-slate-400">category:</span> &quot;{effectiveCategory}&quot;</div>
-                <div><span className="text-slate-400">budget:</span> <span suppressHydrationWarning>₹{formatINR(effectiveBudget)}</span></div>
-                <div><span className="text-slate-400">use_case:</span> &quot;{effectiveUseCase}&quot;</div>
-                <div><span className="text-slate-400">priority:</span> &quot;{effectivePriority}&quot;</div>
-              </div>
-            </div>
+
 
             {/* Conversation Messages Thread */}
-            <div className="border-t border-slate-200 pt-3 space-y-2.5 max-h-[260px] overflow-y-auto">
+            <div ref={chatContainerRef} className="border-t border-slate-200 pt-3 space-y-2.5 max-h-[260px] overflow-y-auto">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
                   Agent Conversation Thread
@@ -1879,7 +1761,6 @@ export default function LiveDemoPage() {
                   </div>
                 </div>
               )}
-              <div ref={chatEndRef} />
             </div>
 
             {/* Interactive Chatbot Input & Fast Triggers */}

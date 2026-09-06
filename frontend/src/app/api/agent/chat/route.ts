@@ -56,16 +56,20 @@ async function callLLM(prompt: string, systemPrompt?: string): Promise<string> {
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages,
-        max_tokens: 450,
-        temperature: 0.1
+        max_tokens: 1200,
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
       }),
-      signal: AbortSignal.timeout(4000)
+      signal: AbortSignal.timeout(8000)
     });
 
     if (res.ok) {
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content?.trim() || '';
       if (content) return content;
+    } else {
+      const errData = await res.json();
+      console.warn('Groq call returned status', res.status, errData);
     }
   } catch (groqErr) {
     console.warn('Groq LLM call failed, trying Hugging Face fallback:', groqErr);
@@ -299,78 +303,118 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. Filter candidates based on buyer query & budget
+    // 2. LLM-Powered Semantic Product Selection (Groq Merchant Agent / MCP Client)
     const budget = Number(structuredReq.budget_inr || structuredReq.max_price || 0) || 100000;
-    const queryLower = message.toLowerCase();
+    const requestedItem = structuredReq.search_query || structuredReq.category || message;
 
-    // Extract significant query tokens (ignoring stop words)
-    const tokens = queryLower
-      .split(/[^a-z0-9]+/)
-      .filter((t: string) => t.length > 2 && !['want', 'need', 'buy', 'for', 'the', 'with', 'under', 'below', 'within', 'upto', 'order', 'this', 'please', 'find', 'get', 'item'].includes(t));
+    let selected: RailwayProduct | null = null;
+    let candidatePool: RailwayProduct[] = [];
+    let isExactNameGiven = Boolean(body.selected_product_id);
+    let growthItem: RailwayProduct = liveProducts.find(p => p.category === 'Accessories') || liveProducts[0];
+    let growthReason = 'Complementary accessory paired with your purchase';
 
-    // Priority pool 1: products matching both keywords and budget
-    let candidatePool = liveProducts.filter((p: RailwayProduct) => {
-      const priceInr = p.price / 100.0;
-      const text = `${p.name} ${p.category} ${p.description || ''}`.toLowerCase();
-      const hasKeyword = tokens.some((tok: string) => text.includes(tok));
-      return hasKeyword && priceInr <= budget * 1.15;
-    });
-
-    // Priority pool 2: if keyword match within budget is empty, match keyword regardless of strict budget
-    if (candidatePool.length === 0 && tokens.length > 0) {
-      candidatePool = liveProducts.filter((p: RailwayProduct) => {
-        const text = `${p.name} ${p.category} ${p.description || ''}`.toLowerCase();
-        return tokens.some((tok: string) => text.includes(tok));
-      });
+    if (body.selected_product_id) {
+      selected = liveProducts.find(p => p.id === body.selected_product_id) || null;
+      if (selected) isExactNameGiven = true;
     }
 
-    // Priority pool 3: if still empty, products within budget
-    if (candidatePool.length === 0) {
-      candidatePool = liveProducts.filter((p: RailwayProduct) => (p.price / 100.0) <= budget);
-    }
-
-    // Default fallback to live products
-    if (candidatePool.length === 0) {
-      candidatePool = liveProducts;
-    }
-
-    // Sort candidates so the most relevant title match appears first
-    candidatePool.sort((a, b) => {
-      const aName = a.name.toLowerCase();
-      const bName = b.name.toLowerCase();
-      const aDesc = (a.description || '').toLowerCase();
-      const bDesc = (b.description || '').toLowerCase();
-      
-      let aScore = 0;
-      let bScore = 0;
-      for (const t of tokens) {
-        if (aName.includes(t)) aScore += 15;
-        else if (aDesc.includes(t)) aScore += 2;
-        if (bName.includes(t)) bScore += 15;
-        else if (bDesc.includes(t)) bScore += 2;
+    if (!selected) {
+      // Prioritize relevant category items + accessories to keep prompt concise (<500 tokens)
+      const targetCategory = structuredReq.category || '';
+      let relevantProducts = liveProducts;
+      if (targetCategory && targetCategory !== 'General') {
+        const matchingCategory = liveProducts.filter(p => 
+          p.category.toLowerCase() === targetCategory.toLowerCase()
+        );
+        const accessoryPool = liveProducts.filter(p => 
+          p.category === 'Accessories' && p.category.toLowerCase() !== targetCategory.toLowerCase()
+        ).slice(0, 4);
+        if (matchingCategory.length > 0) {
+          relevantProducts = [...matchingCategory, ...accessoryPool];
+        }
       }
-      return bScore - aScore;
-    });
 
-    // 3. Determine if user specified an exact product name vs a generic category query
-    const exactMatch = liveProducts.find((p: RailwayProduct) => {
-      const pNameLower = p.name.toLowerCase();
-      return queryLower.includes(pNameLower) ||
-             (pNameLower.includes('strikepad') && queryLower.includes('strikepad')) ||
-             (pNameLower.includes('novabook pro') && queryLower.includes('novabook pro')) ||
-             (pNameLower.includes('novabook edu') && queryLower.includes('novabook edu')) ||
-             (pNameLower.includes('pulsebook') && queryLower.includes('pulsebook')) ||
-             (pNameLower.includes('hubconnect') && queryLower.includes('hubconnect')) ||
-             (pNameLower.includes('soundpod') && queryLower.includes('soundpod')) ||
-             (pNameLower.includes('visionmonitor') && queryLower.includes('visionmonitor')) ||
-             (pNameLower.includes('novacarry') && queryLower.includes('novacarry')) ||
-             (pNameLower.includes('steadystand') && queryLower.includes('steadystand')) ||
-             (pNameLower.includes('deskmate') && queryLower.includes('deskmate')) ||
-             (pNameLower.includes('standrise') && queryLower.includes('standrise'));
-    });
+      // Concise catalog overview for Groq LLM
+      const catalogBrief = relevantProducts.map(p => 
+        `- ID: "${p.id}", Name: "${p.name}", Category: "${p.category}", Price: ₹${(p.price / 100).toLocaleString('en-IN')}`
+      ).join('\n');
 
-    const isExplicitSelection = Boolean(body.selected_product_id);
-    const isExactNameGiven = Boolean(exactMatch) || isExplicitSelection;
+      const merchantPrompt = `You are the Merchant AI Agent and Model Context Protocol (MCP) store client.
+A Buyer AI Agent sent this purchase request:
+- User Message: "${message}"
+- Target Item / Entity: "${requestedItem}"
+- Target Category: "${structuredReq.category || 'Any'}"
+- Budget Limit: ₹${budget.toLocaleString('en-IN')}
+
+Here is the live store catalog:
+${catalogBrief}
+
+INSTRUCTIONS:
+1. Determine if the buyer specified an EXACT product name (e.g. "NovaBook Pro 14", "StrikePad Gaming Mouse Pad XL").
+   If exact name is given, set "is_exact_match": true and "selected_product_id" to that product ID.
+2. If the buyer asked for a general product or category (e.g. "laptop", "laptop bag", "mouse", "keyboard", "headphones", "monitor"):
+   - Set "is_exact_match": false
+   - Select 1 to 3 "candidate_ids" that GENUINELY match the requested item and category within budget.
+   - SEMANTIC RULE:
+     * If the buyer asks for a "laptop", select actual laptops (e.g. NovaBook, PulseBook) from the Laptops category. DO NOT select laptop bags, skins, or stands!
+     * If the buyer asks for a "bag" or "laptop bag", select ONLY actual bags/backpacks/sleeves (e.g. NovaCarry Laptop Bag, NovaCarry Backpack, NovaCarry Sleeve). DO NOT select mice, hubs, stands, or chargers!
+     * If the buyer asks for a "mouse", select ONLY mice. DO NOT select mouse pads or laptops!
+3. Select 1 complementary accessory ID for "upsell_product_id" and write a 1-sentence pairing reason.
+
+Return ONLY valid JSON:
+{
+  "is_exact_match": boolean,
+  "selected_product_id": string,
+  "candidate_ids": string[],
+  "upsell_product_id": string,
+  "upsell_reason": string
+}`;
+
+      try {
+        const groqRes = await callLLM(merchantPrompt, 'You are an autonomous merchant growth AI. Respond with valid JSON only.');
+        const jsonMatch = groqRes.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.is_exact_match && parsed.selected_product_id) {
+            const match = liveProducts.find(p => p.id === parsed.selected_product_id);
+            if (match) {
+              selected = match;
+              isExactNameGiven = true;
+            }
+          }
+          if (Array.isArray(parsed.candidate_ids) && parsed.candidate_ids.length > 0) {
+            const validCandidates = parsed.candidate_ids
+              .map((id: string) => liveProducts.find(p => p.id === id))
+              .filter(Boolean) as RailwayProduct[];
+            if (validCandidates.length > 0) {
+              candidatePool = validCandidates;
+            }
+          }
+          if (parsed.upsell_product_id) {
+            const up = liveProducts.find(p => p.id === parsed.upsell_product_id);
+            if (up) {
+              growthItem = up;
+              if (parsed.upsell_reason) growthReason = parsed.upsell_reason;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Groq merchant catalog selection notice:', err);
+      }
+    }
+
+    // Fallback if LLM candidate pool was empty: filter by category or query
+    if (!selected && candidatePool.length === 0) {
+      const targetCatLower = (structuredReq.category || requestedItem || '').toLowerCase();
+      candidatePool = liveProducts.filter(p => {
+        const catMatch = p.category.toLowerCase().includes(targetCatLower) || targetCatLower.includes(p.category.toLowerCase());
+        const nameMatch = p.name.toLowerCase().includes(requestedItem.toLowerCase());
+        return (catMatch || nameMatch) && (p.price / 100.0) <= budget * 1.15;
+      });
+      if (candidatePool.length === 0) {
+        candidatePool = liveProducts.slice(0, 3);
+      }
+    }
 
     // IF GENERIC QUERY (e.g. "i want a mouse", "i need a laptop"):
     // Recommend top 2-3 matching products based on query and let the user select!
@@ -405,35 +449,36 @@ export async function POST(req: NextRequest) {
     }
 
     // IF EXACT PRODUCT GIVEN OR SELECTED:
-    let selected = exactMatch || (body.selected_product_id ? liveProducts.find(p => p.id === body.selected_product_id) : null) || candidatePool[0];
+    const finalProduct = selected || candidatePool[0] || liveProducts[0];
+    const prodPriceInr = finalProduct.price / 100.0;
 
-    const prodPriceInr = selected.price / 100.0;
-
-    // 4. Groq LLM MCP Client: Select Growth & Upsell Opportunity from Accessories
     const accessories = liveProducts.filter((p: RailwayProduct) => 
-      p.id !== selected.id && 
+      p.id !== finalProduct.id && 
       (p.category === 'Accessories' || p.category === 'Peripherals' || p.category === 'Office') &&
       (p.price / 100.0) <= Math.max(3000, prodPriceInr * 0.5)
     );
 
-    let growthItem = accessories[0] || liveProducts.find(p => p.id !== selected.id && (p.price / 100.0) <= 2500) || liveProducts[1];
-    let growthReason = `Complementary accessory paired with ${selected.name}`;
+    // Ensure growth accessory is distinct from main product
+    if (growthItem.id === finalProduct.id) {
+      const alt = liveProducts.find(p => p.id !== finalProduct.id && (p.category === 'Accessories' || p.category === 'Peripherals'));
+      if (alt) growthItem = alt;
+    }
 
     try {
       const accList = accessories.slice(0, 8);
-      if (accList.length > 0) {
+      if (accList.length > 0 && (!growthItem || growthReason === 'Complementary accessory paired with your purchase')) {
         const accListStr = accList.map((a: RailwayProduct) => 
           `ID: "${a.id}", Name: "${a.name}", Price: ₹${(a.price / 100).toLocaleString()}, Description: "${a.description || ''}"`
         ).join('\n');
 
         const growthPrompt = `You are the Merchant Growth AI Agent.
-Main Selected Product: ${selected.name} (₹${prodPriceInr.toLocaleString()})
+Main Selected Product: ${finalProduct.name} (₹${prodPriceInr.toLocaleString()})
 Buyer Request: "${message}"
 
 Candidate Complementary Accessories:
 ${accListStr}
 
-Pick the single best complementary accessory and write a persuasive, 1-sentence reason (under 18 words) explaining why it pairs well with ${selected.name}.
+Pick the single best complementary accessory and write a persuasive, 1-sentence reason (under 18 words) explaining why it pairs well with ${finalProduct.name}.
 Return ONLY valid JSON:
 {
   "accessory_id": "<ID of chosen accessory>",
@@ -459,7 +504,7 @@ Return ONLY valid JSON:
     const recPriceInr = growthItem.price / 100.0;
 
     // 5. Build Merchant Response
-    const formattedMessage = `🎯 I matched **${selected.name}** for ₹${prodPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
+    const formattedMessage = `🎯 I matched **${finalProduct.name}** for ₹${prodPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.
 
 💡 **Growth Suggestion**: ${growthReason} — **${growthItem.name}** for ₹${recPriceInr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}.`;
 
@@ -469,15 +514,15 @@ Return ONLY valid JSON:
       message: formattedMessage,
       merchant_id: body.merchant_id || 1,
       selected_product: {
-        product_id: selected.id,
-        product_name: selected.name,
-        category: selected.category,
+        product_id: finalProduct.id,
+        product_name: finalProduct.name,
+        category: finalProduct.category,
         price_inr: prodPriceInr,
-        stock_quantity: selected.quantityAvailable || 25,
+        stock_quantity: finalProduct.quantityAvailable || 25,
         rating: 4.6,
-        description: selected.description || '',
-        tags: [selected.category.toLowerCase()],
-        image_url: selected.imageUrl || 'https://images.unsplash.com/photo-1585792180666-f7347c490ee2?w=700&auto=format&fit=crop&q=80'
+        description: finalProduct.description || '',
+        tags: [finalProduct.category.toLowerCase()],
+        image_url: finalProduct.imageUrl || 'https://images.unsplash.com/photo-1585792180666-f7347c490ee2?w=700&auto=format&fit=crop&q=80'
       },
       recommendations: [
         {
