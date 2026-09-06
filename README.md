@@ -16,7 +16,6 @@
 
 ## 📖 Table of Contents
 - [🌟 Executive Summary](#-executive-summary)
-- [🌐 Live Deployments & URLs](#-live-deployments--urls)
 - [🏛️ End-to-End System Architecture](#️-end-to-end-system-architecture)
 - [🤖 Dual-LLM Architecture: Hugging Face + Groq](#-dual-llm-architecture-hugging-face--groq)
 - [🛡️ Deterministic 3-Tier Policy Gate Engine](#️-deterministic-3-tier-policy-gate-engine)
@@ -49,23 +48,10 @@ As autonomous AI agents evolve from conversational assistants into economic acto
 
 ---
 
-## 🌐 Live Deployments & URLs
-
-| Service / Interface | URL | Purpose |
-| :--- | :--- | :--- |
-| **Live Remote MCP Storefront** | [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app) | Live product catalog, orders, and PostgreSQL database deployed on Railway. |
-| **A2A Interactive Demo & Chatbot** | [http://localhost:3000/demo](http://localhost:3000/demo) | Full interactive 4-column A2A demo with live chat, policy gate, and live order placement. |
-| **Dynamic Policy Engine** | [http://localhost:3000/policy](http://localhost:3000/policy) | Dynamic controls for Approval Threshold (₹), Max Limit (₹), Category Restrictions, and Velocity limits. |
-| **Audit Trail & Ledger** | [http://localhost:3000/transactions](http://localhost:3000/transactions) | Real-time immutable record of all agent interactions, policy decisions, and settlements. |
-| **Architecture Visualizer** | [http://localhost:3000/architecture](http://localhost:3000/architecture) | Interactive visual map of the entire A2A MCP data flow. |
-| **Failure Scenarios Dashboard** | [http://localhost:3000/scenarios](http://localhost:3000/scenarios) | Test harness for Policy Violation, Razorpay Signature Failure, Network Timeout, and Out-of-Stock. |
-
----
-
 ## 🏛️ End-to-End System Architecture
 
 <p align="center">
-  <img src="./assets/architecture.png" alt="Agentic Commerce End-to-End System Architecture" width="100%" style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);" />
+  <img src="./assets/architecture.png" alt="Agentic Commerce End-to-End System Architecture" width="100%" style="background-color: #ffffff; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.08);" />
 </p>
 
 ### 🔄 Multi-Stage Autonomous Execution Pipeline
@@ -494,7 +480,8 @@ RAZORPAY_KEY_SECRET=...
 ## 🚀 Quickstart & Local Setup Guide
 
 ### Prerequisites
-- **Node.js**: v18+ or v20+
+- **Python**: 3.10+ / 3.11+
+- **Node.js**: v18+ / v20+
 - **npm** or **pnpm**
 - **Git**
 
@@ -504,26 +491,73 @@ git clone https://github.com/GunaTeja777/AI-Growth-Agentic-Commerce.git
 cd AI-Growth-Agentic-Commerce
 ```
 
-### Step 2: Install Frontend Dependencies
+### Step 2: Set Up Python Virtual Environment (Backend & Agent)
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate virtual environment:
+# Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# Linux / macOS:
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r backend/requirements.txt
+pip install -r agent/requirements.txt
+```
+
+### Step 3: Install Frontend Dependencies
 ```bash
 cd frontend
 npm install
+cd ..
 ```
 
-### Step 3: Configure Environment Variables
-Ensure your `frontend/.env.local` contains valid API keys for `GROQ_API_KEY` and `HUGGINGFACE_API_TOKEN`.
-
-### Step 4: Launch the Development Server
+### Step 4: Configure Environment Variables
+Ensure `frontend/.env.local` contains your API keys:
 ```bash
+GROQ_API_KEY=gsk_...
+HUGGINGFACE_API_TOKEN=hf_...
+```
+
+### Step 5: Run the Services (3 Terminals)
+
+Open 3 terminal windows in the project root:
+
+#### 🖥️ Terminal 1 — Backend (FastAPI & Policy Audit — Port 8000)
+```bash
+# Windows (PowerShell):
+$env:PYTHONPATH="backend"
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Linux / macOS:
+PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### 🤖 Terminal 2 — Agent Orchestrator (LangGraph & MCP Client — Port 8001)
+```bash
+# Windows (PowerShell):
+$env:PYTHONPATH="agent"
+uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+
+# Linux / macOS:
+PYTHONPATH=agent uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+#### 🌐 Terminal 3 — Frontend (Next.js Application — Port 3000)
+```bash
+cd frontend
 npm run dev
 ```
 
-### Step 5: Open in Your Browser
-Visit [http://localhost:3000](http://localhost:3000) to view the application:
-- **Interactive A2A Demo & Chatbot**: [http://localhost:3000/demo](http://localhost:3000/demo)
-- **Policy Engine Controls**: [http://localhost:3000/policy](http://localhost:3000/policy)
-- **Transaction Audit Ledger**: [http://localhost:3000/transactions](http://localhost:3000/transactions)
-- **Live Railway Storefront**: [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app)
+---
+
+### 🛍️ Live E-Commerce Store & MCP Server
+The full product catalog and PostgreSQL database are already deployed and hosted live on Railway:
+- **Live E-Commerce Storefront**: [https://ai-growth-agentic-commerce-production.up.railway.app](https://ai-growth-agentic-commerce-production.up.railway.app)
+
+*(The backend, agent orchestrator, and frontend are pre-configured to communicate directly with this live store instance out of the box).*
 
 ---
 
