@@ -64,6 +64,24 @@ As autonomous AI agents evolve from conversational assistants into economic acto
 
 ## 🏛️ End-to-End System Architecture
 
+<p align="center">
+  <img src="./assets/architecture.png" alt="Agentic Commerce End-to-End System Architecture" width="100%" style="border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);" />
+</p>
+
+### 🔄 Multi-Stage Autonomous Execution Pipeline
+
+| Stage | Component | Tech Stack | Role & Functionality |
+| :--- | :--- | :--- | :--- |
+| **1. Buyer Intent** | **Human Buyer & Chat** | Next.js 14, TailwindCSS | User inputs shopping requests naturally or clicks pre-built query chips in real-time. |
+| **2. Intent Parser** | **Buyer AI Agent** | Hugging Face (`Llama-3.3-70B`) | Parses free-form natural language into a deterministic **A2A JSON Contract** (`category`, `budget_inr`, `preferences`). |
+| **3. Growth Engine** | **Merchant Growth Agent** | Groq (`llama-3.3-70b-versatile`) | Acts as autonomous MCP Client: queries catalog, scores relevance, and computes intelligent growth upsells. |
+| **4. Live Catalog** | **Standalone MCP Server** | Model Context Protocol SDK, Prisma, PostgreSQL | Live on Railway (`up.railway.app`), exposing 8 standardized tools (`search_products`, `get_product`, `create_order`). |
+| **5. Policy Gate** | **3-Tier Policy Engine** | Programmatic Guardrails | **Tier 1**: Auto-Buy (Zero-Touch) \| **Tier 2**: HITL User Approval \| **Tier 3**: Hard Budget Violations. |
+| **6. Settlement** | **Autonomous Payment Rails** | Razorpay Orders API, UPI AutoPay, HMAC-SHA256 | Issues authentic Razorpay test orders, cryptographic settlement proofs, and records immutable audit ledger logs. |
+
+<details>
+<summary><b>🔍 Click to view Detailed ASCII Flow Schematic</b></summary>
+
 ```
                               USER / HUMAN BUYER
                    (Types prompt in chat or clicks quick chip)
@@ -135,6 +153,7 @@ Total <= Approval Threshold    Total > Threshold & <= Limit     Total > Maximum 
         │   Store Booking ID + Razorpay ID + Settlement Proof    │
         └────────────────────────────────────────────────────────┘
 ```
+</details>
 
 ---
 
